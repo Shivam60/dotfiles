@@ -348,10 +348,38 @@ function Set-RdpTweaks {
     $d.antialiasingMode = 'grayscale'
     if (-not $d.opacity -or $d.opacity -eq 100) { $d.opacity = 85 }
 
-    if ($WhatIfCopy) { Write-Info "rdp tweaks - WOULD drop acrylic blur, keep opacity $($d.opacity), grayscale AA"; return }
+    # If the RDP client will not pass alpha through, transparency is simply gone.
+    # A background image is drawn by Windows Terminal itself rather than by the
+    # desktop compositor, so it always survives the remote session and restores
+    # some of the depth that the blur used to provide.
+    $bgSrc = Join-Path $repo 'config\windows-terminal\bg-tokyonight.png'
+    $addBg = Test-Path $bgSrc
+
+    if ($WhatIfCopy) {
+        Write-Info "rdp tweaks - WOULD drop acrylic blur, keep opacity $($d.opacity), grayscale AA"
+        if ($addBg) { Write-Info 'rdp tweaks - WOULD add the gradient background image' }
+        return
+    }
+
+    if ($addBg) {
+        Copy-Item $bgSrc (Join-Path $wtDir 'bg-tokyonight.png') -Force
+        # ms-appdata:///local/ resolves to this LocalState folder, so the setting
+        # stays valid no matter where the repo lives.
+        $props = $d.PSObject.Properties.Name
+        foreach ($kv in @{
+            backgroundImage             = 'ms-appdata:///local/bg-tokyonight.png'
+            backgroundImageOpacity      = 1.0
+            backgroundImageStretchMode  = 'uniformToFill'
+        }.GetEnumerator()) {
+            if ($props -contains $kv.Key) { $d.($kv.Key) = $kv.Value }
+            else { $d | Add-Member -NotePropertyName $kv.Key -NotePropertyValue $kv.Value }
+        }
+    }
+
     $j | ConvertTo-Json -Depth 32 | Set-Content $live -Encoding utf8
     Write-Ok "rdp tweaks - blur off, opacity $($d.opacity) kept, grayscale antialiasing"
-    Write-Info 'if it still looks opaque, the RDP client is not passing alpha through'
+    if ($addBg) { Write-Ok 'rdp tweaks - gradient background applied (survives RDP)' }
+    Write-Info 'transparency may still be dropped by the RDP client; the gradient is the fallback'
 }
 
 # ---------------------------------------------------------------------------

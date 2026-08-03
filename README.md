@@ -85,9 +85,16 @@ Two things differ in a remote session:
   takes effect immediately. Without the font every glyph renders as a box.
 - **Transparency.** `useAcrylic` is the frosted-*blur* effect and relies on local
   hardware composition, so it never renders over RDP. Plain `opacity` is only an
-  alpha value on the window and does work remotely on Windows 11 — so
-  `-RdpTweaks` drops the blur, **keeps the see-through look**, and switches
-  antialiasing to `grayscale` (ClearType fringes under RDP compression).
+  alpha value on the window and works remotely on Windows 11 — but plenty of RDP
+  clients drop alpha too, and Windows 10 cannot do it at all. So `-RdpTweaks`
+  keeps the opacity in case it works, and *also* applies a generated Tokyo Night
+  gradient as a background image. Windows Terminal draws that itself instead of
+  asking the desktop compositor, so it always survives the remote session and
+  restores some of the depth the blur used to give.
+
+The image is copied into Windows Terminal's `LocalState` and referenced as
+`ms-appdata:///local/bg-tokyonight.png`, so the setting stays valid wherever the
+repo lives.
 
 `-RdpTweaks` patches only the live file; the repo copy stays canonical for local
 machines. Don't `-Capture` on a dev box afterwards, or you'll commit the tweak.
