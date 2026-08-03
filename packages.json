@@ -1,0 +1,46 @@
+{
+  "$comment": "Package manifest for bootstrap.ps1. Edit here, not in the script.",
+
+  "fonts": [
+    { "id": "DEVCOM.JetBrainsMonoNerdFont", "note": "Required: Windows Terminal + starship + eza glyphs" }
+  ],
+
+  "shell": [
+    { "id": "Starship.Starship",        "note": "prompt" },
+    { "id": "ajeetdsouza.zoxide",       "note": "z - smarter cd" },
+    { "id": "junegunn.fzf",             "note": "fuzzy finder (Ctrl+t / Ctrl+r)" },
+    { "id": "sharkdp.bat",              "note": "cat with syntax highlighting" },
+    { "id": "eza-community.eza",        "note": "modern ls" },
+    { "id": "BurntSushi.ripgrep.MSVC",  "note": "rg" },
+    { "id": "Microsoft.PowerShell",     "note": "pwsh 7" },
+    { "id": "Microsoft.WindowsTerminal","note": "terminal" }
+  ],
+
+  "dev": [
+    { "id": "Git.Git" },
+    { "id": "GitHub.cli" },
+    { "id": "Neovim.Neovim" },
+    { "id": "Microsoft.VisualStudioCode" },
+    { "id": "OpenJS.NodeJS" },
+    { "id": "Python.Python.3.11" },
+    { "id": "Microsoft.DotNet.SDK.8" },
+    { "id": "Microsoft.AzureCLI" },
+    { "id": "zig.zig" }
+  ],
+
+  "apps": [
+    { "id": "Microsoft.PowerToys" },
+    { "id": "Google.Chrome" },
+    { "id": "Microsoft.Edge.Beta" },
+    { "id": "Microsoft.Edge.Canary", "extraArgs": ["--ignore-security-hash"] },
+    { "id": "Obsidian.Obsidian" },
+    { "id": "Bruno.Bruno" },
+    { "id": "Microsoft.RemoteDesktopClient" },
+    { "id": "Google.GoogleDrive" }
+  ],
+
+  "psModules": [
+    { "name": "PSFzf",      "note": "lazy-loaded by the profile on first Ctrl+t/Ctrl+r" },
+    { "name": "PSReadLine", "minimumVersion": "2.2.0" }
+  ]
+}

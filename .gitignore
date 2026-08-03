@@ -1,0 +1,9 @@
+# Ignore backups created by bootstrap.ps1
+*.bak-*
+
+# Shell history is machine-local and can contain tokens, internal hostnames and
+# paths. Deliberately not synced.
+ConsoleHost_history*.txt
+
+# Generated init caches (rebuilt automatically by the profile)
+.cache/
