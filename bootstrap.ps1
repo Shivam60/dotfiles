@@ -32,18 +32,154 @@ param(
     [switch]$Capture,
     [switch]$IncludeApps,
     [switch]$NoElevate,
-    [switch]$WhatIfCopy
+    [switch]$WhatIfCopy,
+    # Limit -Install to these groups from packages.json. Empty = fonts+shell+dev.
+    [string[]]$Groups,
+    # Limit -Install to these winget IDs.
+    [string[]]$Only,
+    # Force the interactive menu, or force it off for scripted runs.
+    [switch]$Menu,
+    [switch]$NonInteractive,
+    # Used when re-launching elevated: the child cannot write to our console.
+    [string]$LogFile
 )
 
 $ErrorActionPreference = 'Stop'
 $repo = $PSScriptRoot
 
-if (-not ($Install -or $Apply -or $Capture)) { $Install = $true; $Apply = $true }
+if ($LogFile) { try { Start-Transcript -Path $LogFile -Force | Out-Null } catch { } }
+
+# When invoked via `pwsh -File`, PowerShell does NOT split "a,b" into an array,
+# it binds one string containing a comma. Normalise so both forms behave.
+$Groups = @($Groups | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+$Only   = @($Only   | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 
 function Write-Step { param([string]$m) Write-Host "`n=== $m ===" -ForegroundColor Cyan }
 function Write-Ok   { param([string]$m) Write-Host "  [ok]   $m" -ForegroundColor Green }
 function Write-Warn { param([string]$m) Write-Host "  [warn] $m" -ForegroundColor Yellow }
 function Write-Info { param([string]$m) Write-Host "  [..]   $m" -ForegroundColor DarkGray }
+
+$isTty = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
+
+# ---------------------------------------------------------------------------
+# Interactive menu
+# ---------------------------------------------------------------------------
+function Read-Choice {
+    param([string]$Prompt, [string[]]$Items, [string]$Default = '')
+
+    for ($i = 0; $i -lt $Items.Count; $i++) {
+        Write-Host ('  [{0}] ' -f ($i + 1)) -ForegroundColor Cyan -NoNewline
+        Write-Host $Items[$i]
+    }
+    Write-Host '  [q] ' -ForegroundColor DarkGray -NoNewline; Write-Host 'quit'
+    while ($true) {
+        $hint = if ($Default) { " [$Default]" } else { '' }
+        $ans = (Read-Host "$Prompt$hint").Trim()
+        if (-not $ans -and $Default) { $ans = $Default }
+        if ($ans -eq 'q') { Write-Host 'nothing to do.' -ForegroundColor DarkGray; exit 0 }
+        $n = 0
+        if ([int]::TryParse($ans, [ref]$n) -and $n -ge 1 -and $n -le $Items.Count) { return $n }
+        Write-Host "  pick 1-$($Items.Count), or q" -ForegroundColor Yellow
+    }
+}
+
+function Read-MultiChoice {
+    param([string]$Prompt, [string[]]$Items, [bool[]]$Checked)
+
+    while ($true) {
+        for ($i = 0; $i -lt $Items.Count; $i++) {
+            $mark = if ($Checked[$i]) { 'x' } else { ' ' }
+            $col  = if ($Checked[$i]) { 'Green' } else { 'DarkGray' }
+            Write-Host ('  {0,2}. [{1}] ' -f ($i + 1), $mark) -ForegroundColor $col -NoNewline
+            Write-Host $Items[$i]
+        }
+        Write-Host '  numbers toggle (e.g. "1,3-5"), a = all, n = none, ' -ForegroundColor DarkGray -NoNewline
+        Write-Host 'Enter = accept' -ForegroundColor Cyan
+        $ans = (Read-Host $Prompt).Trim()
+
+        if (-not $ans) { return $Checked }
+        if ($ans -eq 'q') { exit 0 }
+        if ($ans -eq 'a') { for ($i = 0; $i -lt $Checked.Count; $i++) { $Checked[$i] = $true };  continue }
+        if ($ans -eq 'n') { for ($i = 0; $i -lt $Checked.Count; $i++) { $Checked[$i] = $false }; continue }
+
+        foreach ($tok in ($ans -split '[,\s]+' | Where-Object { $_ })) {
+            if ($tok -match '^(\d+)-(\d+)$') {
+                foreach ($k in [int]$Matches[1]..[int]$Matches[2]) {
+                    if ($k -ge 1 -and $k -le $Checked.Count) { $Checked[$k-1] = -not $Checked[$k-1] }
+                }
+            } elseif ($tok -match '^\d+$') {
+                $k = [int]$tok
+                if ($k -ge 1 -and $k -le $Checked.Count) { $Checked[$k-1] = -not $Checked[$k-1] }
+                else { Write-Host "  ignoring '$tok'" -ForegroundColor Yellow }
+            } else { Write-Host "  ignoring '$tok'" -ForegroundColor Yellow }
+        }
+        Write-Host ''
+    }
+}
+
+function Invoke-Menu {
+    Write-Host ''
+    Write-Host '  dotfiles' -ForegroundColor Cyan -NoNewline
+    Write-Host " - $repo" -ForegroundColor DarkGray
+    Write-Host ''
+
+    $choice = Read-Choice -Prompt 'what do you want to do?' -Default '1' -Items @(
+        'Full setup          - install packages, then apply configs'
+        'Apply configs only  - terminal, prompt, git, nvim (no installing)'
+        'Install packages    - pick exactly which ones'
+        'Capture configs     - copy my local edits back into this repo'
+        'Preview             - show what Apply would change, write nothing'
+    )
+
+    switch ($choice) {
+        1 { $script:Install = $true; $script:Apply = $true }
+        2 { $script:Apply = $true }
+        3 { $script:Install = $true }
+        4 { $script:Capture = $true }
+        5 { $script:Apply = $true; $script:WhatIfCopy = $true }
+    }
+
+    if (-not $script:Install) { return }
+
+    # Which packages?
+    $pkgs = Get-Content (Join-Path $repo 'packages.json') -Raw | ConvertFrom-Json
+    $allGroups = @('fonts','shell','dev','apps')
+
+    Write-Host ''
+    $scope = Read-Choice -Prompt 'which packages?' -Default '1' -Items @(
+        'Essentials    - fonts, shell tools, dev tools (skips browsers etc.)'
+        'Everything    - also PowerToys, Chrome, Obsidian, ...'
+        'Let me pick individually'
+    )
+
+    if ($scope -eq 1) { $script:Groups = @('fonts','shell','dev'); return }
+    if ($scope -eq 2) { $script:Groups = $allGroups; $script:IncludeApps = $true; return }
+
+    $items = @(); $checked = @()
+    foreach ($g in $allGroups) {
+        foreach ($p in $pkgs.$g) {
+            $label = '{0,-30} {1}' -f $p.id, ($(if ($p.note) { $p.note } else { $g }))
+            $items += $label
+            # default: essentials on, apps off
+            $checked += ($g -ne 'apps')
+        }
+    }
+    Write-Host ''
+    $checked = Read-MultiChoice -Prompt 'select packages' -Items $items -Checked $checked
+
+    $ids = @()
+    $flat = foreach ($g in $allGroups) { foreach ($p in $pkgs.$g) { $p.id } }
+    for ($i = 0; $i -lt $flat.Count; $i++) { if ($checked[$i]) { $ids += $flat[$i] } }
+
+    if (-not $ids) { Write-Host 'no packages selected.' -ForegroundColor DarkGray; $script:Install = $false; return }
+    $script:Only   = $ids
+    $script:Groups = $allGroups
+}
+
+if (-not ($Install -or $Apply -or $Capture)) {
+    if ($isTty -and -not $NonInteractive) { Invoke-Menu }
+    else { $Install = $true; $Apply = $true }
+} elseif ($Menu) { Invoke-Menu }
 
 # ---------------------------------------------------------------------------
 # Machine paths. Resolved at runtime: $PROFILE and the OneDrive-redirected
@@ -128,6 +264,30 @@ function Copy-Config {
     Write-Ok "$Label -> $To"
 }
 
+function Set-GitInclude {
+    # ~/.gitconfig is NOT copied: it holds corp identity, credential endpoints
+    # and tenant IDs that must never reach GitHub. Instead the machine's config
+    # includes the portable half from this repo. Local values still win, because
+    # the include sits above them.
+    $shared = (Join-Path $repo 'config\git\shared.gitconfig') -replace '\\','/'
+    if (-not (Test-Path $shared)) { Write-Warn 'git - shared.gitconfig missing, skipped'; return }
+
+    $gitconfig = Join-Path $HOME '.gitconfig'
+    $existing = @(git config --global --get-all include.path 2>$null)
+    if ($existing -contains $shared) { Write-Info 'git - include already set'; return }
+
+    if ($WhatIfCopy) { Write-Info "git - WOULD add include.path -> $shared"; return }
+
+    if (Test-Path $gitconfig) {
+        Copy-Item $gitconfig "$gitconfig.bak-$(Get-Date -Format yyyyMMdd-HHmmss)" -Force
+    }
+    # Prepend, so anything already in ~/.gitconfig overrides the shared defaults.
+    $head = "[include]`n`tpath = $shared`n"
+    $body = if (Test-Path $gitconfig) { [System.IO.File]::ReadAllText($gitconfig) } else { '' }
+    [System.IO.File]::WriteAllText($gitconfig, $head + $body)
+    Write-Ok "git - include.path -> $shared"
+}
+
 # ---------------------------------------------------------------------------
 # Install
 # ---------------------------------------------------------------------------
@@ -141,8 +301,10 @@ if ($Install) {
     $pkgFile = Join-Path $repo 'packages.json'
     $pkgs = Get-Content $pkgFile -Raw | ConvertFrom-Json
 
-    $groups = @('fonts','shell','dev')
-    if ($IncludeApps) { $groups += 'apps' } else { Write-Info "skipping 'apps' group (pass -IncludeApps to include)" }
+    $groups = if ($Groups) { $Groups } else { @('fonts','shell','dev') }
+    if ($IncludeApps -and $groups -notcontains 'apps') { $groups += 'apps' }
+    if (-not $Groups -and -not $IncludeApps) { Write-Info "skipping 'apps' group (pass -IncludeApps to include)" }
+    if ($Only) { Write-Info "limited to: $($Only -join ', ')" }
 
     # -- installed-package detection -------------------------------------------
     # 'winget list' is slow (~5s), so it is fetched at most once and only if a
@@ -208,8 +370,10 @@ if ($Install) {
     # already set up never triggers a UAC prompt at all.
     $pending = @()
     foreach ($g in $groups) {
+        $list = @($pkgs.$g | Where-Object { -not $Only -or $Only -contains $_.id })
+        if (-not $list) { continue }
         Write-Host "  -- $g --" -ForegroundColor DarkCyan
-        foreach ($p in $pkgs.$g) {
+        foreach ($p in $list) {
             $why = Get-InstalledReason $p
             if ($why) { Write-Info "$($p.id) - already installed ($why)" }
             else      { Write-Warn "$($p.id) - MISSING"; $pending += $p }
@@ -227,12 +391,23 @@ if ($Install) {
         # One UAC prompt for the whole batch instead of one per package.
         Write-Step "Elevating once to install $($pending.Count) package(s)"
         Write-Info ($pending.id -join ', ')
-        $childArgs = @('-NoProfile','-File',$PSCommandPath,'-Install','-NoElevate')
+        $log = Join-Path $env:TEMP "dotfiles-install-$(Get-Date -Format yyyyMMdd-HHmmss).log"
+        $childArgs = @('-NoProfile','-File',$PSCommandPath,'-Install','-NoElevate','-NonInteractive')
+        # Pass the resolved selection through, so the elevated run installs
+        # exactly this set and never re-prompts.
+        $childArgs += '-Groups'; $childArgs += ($groups -join ',')
+        $childArgs += '-Only';   $childArgs += (($pending.id) -join ',')
+        $childArgs += '-LogFile'; $childArgs += $log
         if ($IncludeApps) { $childArgs += '-IncludeApps' }
         $proc = Start-Process -FilePath (Get-Process -Id $PID).Path -Verb RunAs `
                               -ArgumentList $childArgs -PassThru -Wait
         if ($proc.ExitCode -ne 0) { Write-Warn "elevated installer exited with $($proc.ExitCode)" }
         else { Write-Ok 'elevated install finished' }
+        if (Test-Path $log) {
+            Get-Content $log | Where-Object { $_ -match '^\s*\[(ok|warn|\.\.)\]|^\s{9}\S' } |
+                Select-Object -Last 20 | ForEach-Object { Write-Host "  | $_" -ForegroundColor DarkGray }
+            Write-Info "full log: $log"
+        }
     }
     else {
         foreach ($p in $pending) {
@@ -276,6 +451,7 @@ if ($Apply) {
         if ($c.Skip) { Write-Info "$($c.Name) - not installed here, skipped"; continue }
         Copy-Config -From $c.Repo -To $c.Live -Label $c.Name
     }
+    Set-GitInclude
     Write-Host "`nOpen a NEW terminal tab to pick up the changes." -ForegroundColor Cyan
 }
 
@@ -287,3 +463,5 @@ if ($Capture) {
     }
     Write-Host "`nReview with 'git diff', then commit and push." -ForegroundColor Cyan
 }
+
+if ($LogFile) { try { Stop-Transcript | Out-Null } catch { } }

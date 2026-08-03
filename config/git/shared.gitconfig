@@ -1,0 +1,87 @@
+# Portable git settings, shared across machines via the dotfiles repo.
+#
+# Machine-specific things deliberately live in ~/.gitconfig instead and are
+# NEVER committed: [user] identity, [credential] endpoints and tenant IDs,
+# and safe.directory. ~/.gitconfig includes this file at the top, so anything
+# it defines locally still wins.
+
+[core]
+	longpaths = true
+	autocrlf = false
+	filemode = false
+	preloadindex = true
+	symlinks = false
+	fscache = true
+	pager = delta
+
+[diff]
+	tool = vscode
+	colorMoved = default
+	algorithm = histogram
+	# Detect renames even when the file was also heavily edited.
+	renames = copies
+	mnemonicPrefix = true
+
+[difftool]
+	prompt = false
+
+[difftool "vscode"]
+	cmd = code --wait --diff \"$LOCAL\" \"$REMOTE\"
+
+[interactive]
+	diffFilter = delta --color-only
+
+[merge]
+	conflictstyle = zdiff3
+
+[rerere]
+	# Remember how a conflict was resolved and replay it next time.
+	enabled = true
+
+[branch]
+	sort = -committerdate
+
+[fetch]
+	prune = true
+
+[filter "lfs"]
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = false
+
+[delta]
+	line-numbers = true
+	side-by-side = true
+	navigate = true
+	hyperlinks = true
+	true-color = always
+	dark = true
+	# Closest match to the Tokyo Night terminal theme; delta ships no Tokyo Night.
+	syntax-theme = Catppuccin Macchiato
+	file-style = bold #7aa2f7
+	file-decoration-style = #414868 ul
+	hunk-header-decoration-style = #414868 box
+	hunk-header-style = file line-number syntax
+	line-numbers-minus-style = #f7768e
+	line-numbers-plus-style = #9ece6a
+	line-numbers-zero-style = #414868
+	plus-style = syntax #1f3326
+	minus-style = syntax #3a1f27
+	plus-emph-style = syntax #2f5c3f
+	minus-emph-style = syntax #6b2b38
+	blame-palette = #1a1b26 #24283b #292e42 #414868
+
+[alias]
+	s = status --short --branch
+	d = diff
+	ds = diff --staged
+	# One-line graph log with relative dates.
+	l = log --oneline --graph --decorate -20
+	ll = log --oneline --graph --decorate --all
+	last = show --stat HEAD
+	unstage = restore --staged
+	# Amend without reopening the editor.
+	amend = commit --amend --no-edit
+	# Files changed vs the branch point of the default branch.
+	changed = "!f(){ git diff --name-status $(git merge-base HEAD ${1:-origin/main}); }; f"

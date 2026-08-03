@@ -8,8 +8,30 @@ Terminal, Neovim and winget settings.
 ```powershell
 git clone https://github.com/Shivam60/dotfiles.git $HOME\dotfiles
 cd $HOME\dotfiles
-.\bootstrap.ps1              # install packages + apply configs
-.\bootstrap.ps1 -IncludeApps # also install browsers, PowerToys, Obsidian, etc.
+.\bootstrap.ps1              # asks what you want, then does it
+```
+
+Run with no arguments and it prompts:
+
+```
+  [1] Full setup          - install packages, then apply configs
+  [2] Apply configs only  - terminal, prompt, git, nvim (no installing)
+  [3] Install packages    - pick exactly which ones
+  [4] Capture configs     - copy my local edits back into this repo
+  [5] Preview             - show what Apply would change, write nothing
+```
+
+Choosing *Install* then offers essentials / everything / pick-individually, where
+you toggle packages by number (`2`, `4-6`, `a`, `n`, Enter to accept).
+
+The switches still work for scripted runs, and the menu is skipped automatically
+when stdin is not a terminal:
+
+```powershell
+.\bootstrap.ps1 -Install -Apply             # what the old default did
+.\bootstrap.ps1 -Install -Only sharkdp.bat,GitHub.cli
+.\bootstrap.ps1 -Install -Groups shell      # one group only
+.\bootstrap.ps1 -NonInteractive -Apply      # never prompt
 ```
 
 Then open a **new** terminal tab.
@@ -53,6 +75,18 @@ a UAC prompt per package. `-NoElevate` opts out.
 | `config/windows-terminal/settings.json` | `…/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState/` |
 | `config/winget/settings.json` | `…/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe/LocalState/` |
 | `config/nvim/init.lua` | `%LOCALAPPDATA%\nvim\init.lua` |
+| `config/git/shared.gitconfig` | *included* from `~/.gitconfig` (not copied) |
+
+### git config is split on purpose
+
+`~/.gitconfig` holds corp identity, credential endpoints and an AAD tenant ID —
+none of which belong on GitHub. So only the portable half (delta styling, diff
+settings, aliases, lfs, merge behaviour) is committed here, and `bootstrap.ps1`
+adds a single `include.path` line at the *top* of `~/.gitconfig`. Because the
+include comes first, anything defined locally still overrides it.
+
+Note `git config --global --get X` will not show included values — that flag
+scopes the lookup to one file. Use `git config --get X` instead.
 
 Packages live in `packages.json`, grouped as `fonts` / `shell` / `dev` / `apps`
 (`apps` is opt-in via `-IncludeApps`). Add an id there, not in the script.
