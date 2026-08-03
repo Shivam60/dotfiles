@@ -39,8 +39,6 @@
   "apps": [
     { "id": "Microsoft.PowerToys" },
     { "id": "Google.Chrome" },
-    { "id": "Microsoft.Edge.Beta" },
-    { "id": "Microsoft.Edge.Canary", "extraArgs": [ "--ignore-security-hash" ] },
     { "id": "Obsidian.Obsidian" },
     { "id": "Bruno.Bruno" },
     { "id": "Microsoft.RemoteDesktopClient" },
