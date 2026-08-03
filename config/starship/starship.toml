@@ -9,7 +9,7 @@ $directory\
 $git_branch$git_status\
 [](fg:#414868)\
 $fill\
-$dotnet$python$nodejs$cmd_duration$time\
+$dotnet$cmd_duration\
 $line_break$character"""
 
 # Keep the prompt snappy: never let a module stall the shell.
@@ -68,14 +68,10 @@ format = '[ $symbol($version) ]($style)'
 heuristic = true
 
 [python]
-symbol = " "
-style = "fg:#e0af68"
-format = '[ $symbol($version)(\($virtualenv\)) ]($style)'
+disabled = true
 
 [nodejs]
-symbol = " "
-style = "fg:#9ece6a"
-format = '[ $symbol($version) ]($style)'
+disabled = true
 
 [cmd_duration]
 min_time = 500
@@ -83,10 +79,7 @@ style = "fg:#bb9af7"
 format = '[  $duration ]($style)'
 
 [time]
-disabled = false
-time_format = "%H:%M:%S"
-style = "fg:#565f89"
-format = '[ $time ]($style)'
+disabled = true
 
 [character]
 success_symbol = "[❯](bold #9ece6a)"

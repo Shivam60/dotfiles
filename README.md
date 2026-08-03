@@ -24,6 +24,26 @@ git diff; git commit -am "..."; git push
 
 `-WhatIfCopy` previews either direction without writing.
 
+## Installing packages
+
+`-Install` figures out what is already present *before* touching winget, using
+the first cheap signal that works:
+
+1. `font` — is the family already registered? (fonts are often installed by hand)
+2. `probe` — does the command or path resolve? Catches tools installed by scoop,
+   chocolatey, an MSI or the corp image, which winget knows nothing about.
+3. `altIds` — a different package that satisfies the same need.
+4. Only then, one `winget list` call (~5s), matched on whole tokens so
+   `Microsoft.Edge` cannot falsely match `Microsoft.Edge.Canary`.
+
+If nothing is missing, no elevation happens at all. If something *is* missing,
+the script elevates **once** for the whole batch rather than letting winget raise
+a UAC prompt per package. `-NoElevate` opts out.
+
+> `Git.Git` has `probe: git` and `altIds: [Microsoft.Git]` on purpose. Corp
+> monorepo machines run the VFS-for-Git fork (`Microsoft.Git`), and installing
+> stock Git over it would shadow it on `PATH`.
+
 ## What's in here
 
 | Path | Goes to |

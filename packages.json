@@ -1,38 +1,46 @@
 {
-  "$comment": "Package manifest for bootstrap.ps1. Edit here, not in the script.",
+  "$comment": [
+    "Package manifest for bootstrap.ps1. Edit here, not in the script.",
+    "probe  - a command name or file path. If it resolves, the package counts as",
+    "         installed no matter how it got there (winget, scoop, MSI, corp image).",
+    "altIds - other winget IDs that satisfy the same need; if any is present, skip.",
+    "font   - match an installed font family instead of asking winget."
+  ],
 
   "fonts": [
-    { "id": "DEVCOM.JetBrainsMonoNerdFont", "note": "Required: Windows Terminal + starship + eza glyphs" }
+    { "id": "DEVCOM.JetBrainsMonoNerdFont", "font": "JetBrainsMono",
+      "note": "Required: Windows Terminal + starship + eza glyphs" }
   ],
 
   "shell": [
-    { "id": "Starship.Starship",        "note": "prompt" },
-    { "id": "ajeetdsouza.zoxide",       "note": "z - smarter cd" },
-    { "id": "junegunn.fzf",             "note": "fuzzy finder (Ctrl+t / Ctrl+r)" },
-    { "id": "sharkdp.bat",              "note": "cat with syntax highlighting" },
-    { "id": "eza-community.eza",        "note": "modern ls" },
-    { "id": "BurntSushi.ripgrep.MSVC",  "note": "rg" },
-    { "id": "Microsoft.PowerShell",     "note": "pwsh 7" },
-    { "id": "Microsoft.WindowsTerminal","note": "terminal" }
+    { "id": "Starship.Starship",         "probe": "%ProgramFiles%\\starship\\bin\\starship.exe", "note": "prompt; its installer does not add itself to PATH" },
+    { "id": "ajeetdsouza.zoxide",        "probe": "zoxide", "note": "z - smarter cd" },
+    { "id": "junegunn.fzf",              "probe": "fzf",    "note": "fuzzy finder (Ctrl+t / Ctrl+r)" },
+    { "id": "sharkdp.bat",               "probe": "bat",    "note": "cat with syntax highlighting" },
+    { "id": "eza-community.eza",         "probe": "eza",    "note": "modern ls" },
+    { "id": "BurntSushi.ripgrep.MSVC",   "probe": "rg",     "note": "ripgrep" },
+    { "id": "Microsoft.PowerShell",      "probe": "pwsh",   "note": "pwsh 7" },
+    { "id": "Microsoft.WindowsTerminal", "probe": "wt",     "note": "terminal" }
   ],
 
   "dev": [
-    { "id": "Git.Git" },
-    { "id": "GitHub.cli" },
-    { "id": "Neovim.Neovim" },
-    { "id": "Microsoft.VisualStudioCode" },
-    { "id": "OpenJS.NodeJS" },
-    { "id": "Python.Python.3.11" },
-    { "id": "Microsoft.DotNet.SDK.8" },
-    { "id": "Microsoft.AzureCLI" },
-    { "id": "zig.zig" }
+    { "id": "Git.Git", "probe": "git", "altIds": [ "Microsoft.Git" ],
+      "note": "Microsoft.Git is the VFS-for-Git fork on corp monorepo machines. Never install Git.Git over it." },
+    { "id": "GitHub.cli",                 "probe": "gh" },
+    { "id": "Neovim.Neovim",              "probe": "nvim" },
+    { "id": "Microsoft.VisualStudioCode", "probe": "code" },
+    { "id": "OpenJS.NodeJS",              "probe": "node" },
+    { "id": "Python.Python.3.11", "note": "no probe: bare 'python' may be the Store app-execution-alias stub" },
+    { "id": "Microsoft.DotNet.SDK.8", "note": "no probe: 'dotnet' may come from a different SDK band" },
+    { "id": "Microsoft.AzureCLI",         "probe": "az" },
+    { "id": "zig.zig",                    "probe": "zig" }
   ],
 
   "apps": [
     { "id": "Microsoft.PowerToys" },
     { "id": "Google.Chrome" },
     { "id": "Microsoft.Edge.Beta" },
-    { "id": "Microsoft.Edge.Canary", "extraArgs": ["--ignore-security-hash"] },
+    { "id": "Microsoft.Edge.Canary", "extraArgs": [ "--ignore-security-hash" ] },
     { "id": "Obsidian.Obsidian" },
     { "id": "Bruno.Bruno" },
     { "id": "Microsoft.RemoteDesktopClient" },

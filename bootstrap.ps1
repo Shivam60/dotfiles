@@ -11,9 +11,12 @@
 
     With no switches, runs -Install then -Apply (a full new-machine setup).
 
-    Configs are COPIED, not symlinked. Windows Terminal silently ignores a
-    symlinked settings.json and falls back to its built-in defaults, which makes
-    symlink-based sync fail with no error at all. Copying is boring and works.
+      -Install elevates itself ONCE up front so winget does not raise a separate UAC
+      prompt for every package. Pass -NoElevate to skip that.
+
+      Configs are COPIED, not symlinked. Windows Terminal silently ignores a
+      symlinked settings.json and falls back to its built-in defaults, which makes
+      symlink-based sync fail with no error at all. Copying is boring and works.
 
 .EXAMPLE
     .\bootstrap.ps1                 # new machine: install everything, apply configs
@@ -28,6 +31,7 @@ param(
     [switch]$Apply,
     [switch]$Capture,
     [switch]$IncludeApps,
+    [switch]$NoElevate,
     [switch]$WhatIfCopy
 )
 
@@ -140,16 +144,104 @@ if ($Install) {
     $groups = @('fonts','shell','dev')
     if ($IncludeApps) { $groups += 'apps' } else { Write-Info "skipping 'apps' group (pass -IncludeApps to include)" }
 
-    $installed = (winget list --disable-interactivity 2>$null) -join "`n"
+    # -- installed-package detection -------------------------------------------
+    # 'winget list' is slow (~5s), so it is fetched at most once and only if a
+    # cheap probe has not already answered the question.
+    $script:wgExact = $null
+    $script:wgPrefix = $null
+    function Get-WingetIds {
+        if ($null -ne $script:wgExact) { return }
+        Write-Info 'querying installed packages (one-time, ~5s)'
+        $script:wgExact  = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        $script:wgPrefix = New-Object System.Collections.Generic.List[string]
+        foreach ($line in (winget list --disable-interactivity 2>$null)) {
+            # IDs never contain spaces, so tokenising gives exact matches and
+            # avoids 'Microsoft.Edge' falsely matching 'Microsoft.Edge.Canary'.
+            foreach ($tok in ($line -split '\s{2,}|\s' | Where-Object { $_ })) {
+                if ($tok.EndsWith([char]0x2026)) {
+                    # Narrow consoles truncate the Id column with an ellipsis.
+                    $script:wgPrefix.Add($tok.TrimEnd([char]0x2026))
+                } else {
+                    [void]$script:wgExact.Add($tok)
+                }
+            }
+        }
+    }
+    function Test-WingetId {
+        param([string]$Id)
+        Get-WingetIds
+        if ($script:wgExact.Contains($Id)) { return $true }
+        foreach ($pre in $script:wgPrefix) {
+            if ($pre.Length -ge 4 -and $Id.StartsWith($pre, 'OrdinalIgnoreCase')) { return $true }
+        }
+        return $false
+    }
+    function Test-Probe {
+        param([string]$Probe)
+        if (-not $Probe) { return $false }
+        if ($Probe -match '[\\/]') {
+            return (Test-Path ([Environment]::ExpandEnvironmentVariables($Probe)))
+        }
+        return [bool](Get-Command $Probe -ErrorAction SilentlyContinue)
+    }
+    function Test-FontInstalled {
+        param([string]$Match)
+        foreach ($k in 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts',
+                       'HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts') {
+            $p = Get-ItemProperty $k -ErrorAction SilentlyContinue
+            if ($p -and ($p.PSObject.Properties.Name -match [regex]::Escape($Match))) { return $true }
+        }
+        return $false
+    }
+    function Get-InstalledReason {
+        param($p)
+        if ($p.font -and (Test-FontInstalled $p.font))  { return 'font present' }
+        if (Test-Probe $p.probe)                        { return "found '$($p.probe)'" }
+        if (Test-WingetId $p.id)                        { return 'winget' }
+        foreach ($alt in @($p.altIds)) {
+            if ($alt -and (Test-WingetId $alt))         { return "$alt installed instead" }
+        }
+        return $null
+    }
 
+    # Work out what is actually missing BEFORE elevating, so a machine that is
+    # already set up never triggers a UAC prompt at all.
+    $pending = @()
     foreach ($g in $groups) {
         Write-Host "  -- $g --" -ForegroundColor DarkCyan
         foreach ($p in $pkgs.$g) {
-            if ($installed -match [regex]::Escape($p.id)) { Write-Info "$($p.id) already installed"; continue }
-            $args = @('install','--id',$p.id,'-e','--accept-source-agreements','--accept-package-agreements','--disable-interactivity')
-            if ($p.extraArgs) { $args += $p.extraArgs }
+            $why = Get-InstalledReason $p
+            if ($why) { Write-Info "$($p.id) - already installed ($why)" }
+            else      { Write-Warn "$($p.id) - MISSING"; $pending += $p }
+        }
+    }
+
+    $isAdmin = ([Security.Principal.WindowsPrincipal] `
+        [Security.Principal.WindowsIdentity]::GetCurrent()
+    ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+    if (-not $pending) {
+        Write-Ok 'all packages already installed - nothing to do'
+    }
+    elseif (-not $isAdmin -and -not $NoElevate) {
+        # One UAC prompt for the whole batch instead of one per package.
+        Write-Step "Elevating once to install $($pending.Count) package(s)"
+        Write-Info ($pending.id -join ', ')
+        $childArgs = @('-NoProfile','-File',$PSCommandPath,'-Install','-NoElevate')
+        if ($IncludeApps) { $childArgs += '-IncludeApps' }
+        $proc = Start-Process -FilePath (Get-Process -Id $PID).Path -Verb RunAs `
+                              -ArgumentList $childArgs -PassThru -Wait
+        if ($proc.ExitCode -ne 0) { Write-Warn "elevated installer exited with $($proc.ExitCode)" }
+        else { Write-Ok 'elevated install finished' }
+    }
+    else {
+        foreach ($p in $pending) {
+            $wgArgs = @('install','--id',$p.id,'-e','--accept-source-agreements',
+                        '--accept-package-agreements','--disable-interactivity')
+            if ($p.extraArgs) { $wgArgs += $p.extraArgs }
             Write-Info "installing $($p.id)"
-            & winget @args 2>&1 | Select-Object -Last 1 | ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
+            & winget @wgArgs 2>&1 | Select-Object -Last 1 |
+                ForEach-Object { Write-Host "         $_" -ForegroundColor DarkGray }
         }
     }
 
