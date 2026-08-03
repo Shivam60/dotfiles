@@ -9,6 +9,8 @@
 
   "fonts": [
     { "id": "DEVCOM.JetBrainsMonoNerdFont", "font": "JetBrainsMono",
+      "fontUrl": "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip",
+      "fontFilter": "JetBrainsMonoNerdFontMono-",
       "note": "Required: Windows Terminal + starship + eza glyphs" }
   ],
 

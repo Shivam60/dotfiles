@@ -40,6 +40,8 @@ param(
     # Force the interactive menu, or force it off for scripted runs.
     [switch]$Menu,
     [switch]$NonInteractive,
+    # Adjust the applied Windows Terminal settings for a remote session.
+    [switch]$RdpTweaks,
     # Used when re-launching elevated: the child cannot write to our console.
     [string]$LogFile
 )
@@ -288,6 +290,70 @@ function Set-GitInclude {
     Write-Ok "git - include.path -> $shared"
 }
 
+function Install-FontPerUser {
+    # Dev boxes often refuse admin, and winget's font package needs it. Fonts can
+    # be installed for the current user with no elevation at all: drop the files
+    # in the per-user font folder and register them under HKCU.
+    param([string]$Url, [string]$Filter, [string]$Label)
+
+    $userFonts = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Fonts'
+    $regKey    = 'HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts'
+    New-Item -ItemType Directory -Force -Path $userFonts | Out-Null
+    if (-not (Test-Path $regKey)) { New-Item -Path $regKey -Force | Out-Null }
+
+    $tmp = Join-Path $env:TEMP "font-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+    New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+    try {
+        $zip = Join-Path $tmp 'font.zip'
+        Write-Info "$Label - downloading (no admin needed)"
+        $old = $ProgressPreference; $ProgressPreference = 'SilentlyContinue'
+        try { Invoke-WebRequest -Uri $Url -OutFile $zip -UseBasicParsing } finally { $ProgressPreference = $old }
+
+        Expand-Archive -Path $zip -DestinationPath $tmp -Force
+        $ttfs = Get-ChildItem $tmp -Recurse -Include *.ttf, *.otf |
+                Where-Object { -not $Filter -or $_.Name -like "$Filter*" }
+        if (-not $ttfs) { Write-Warn "$Label - archive had no fonts matching '$Filter'"; return $false }
+
+        $n = 0
+        foreach ($f in $ttfs) {
+            $dest = Join-Path $userFonts $f.Name
+            Copy-Item $f.FullName $dest -Force
+            # The registry value name is what apps see; the suffix matters for TTF.
+            $title = [IO.Path]::GetFileNameWithoutExtension($f.Name)
+            $suffix = if ($f.Extension -eq '.otf') { ' (OpenType)' } else { ' (TrueType)' }
+            New-ItemProperty -Path $regKey -Name "$title$suffix" -Value $dest -PropertyType String -Force | Out-Null
+            $n++
+        }
+        Write-Ok "$Label - installed $n font file(s) for current user"
+        return $true
+    }
+    catch { Write-Warn "$Label - per-user font install failed: $($_.Exception.Message)"; return $false }
+    finally { Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
+function Set-RdpTweaks {
+    # Acrylic is the frosted-blur effect and needs local hardware composition, so
+    # it never renders in a remote session. Plain opacity is just an alpha value
+    # on the window and DOES work over RDP on Windows 11, so keep the see-through
+    # look and only drop the blur. ClearType subpixel AA also fringes badly under
+    # RDP compression, so switch to grayscale.
+    # The repo copy stays canonical - only the LIVE file is patched.
+    $wtDir = Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState'
+    $live  = Join-Path $wtDir 'settings.json'
+    if (-not (Test-Path $live)) { Write-Warn 'rdp tweaks - Windows Terminal settings not found'; return }
+
+    $j = Get-Content $live -Raw | ConvertFrom-Json
+    $d = $j.profiles.defaults
+    $d.useAcrylic       = $false
+    $d.antialiasingMode = 'grayscale'
+    if (-not $d.opacity -or $d.opacity -eq 100) { $d.opacity = 85 }
+
+    if ($WhatIfCopy) { Write-Info "rdp tweaks - WOULD drop acrylic blur, keep opacity $($d.opacity), grayscale AA"; return }
+    $j | ConvertTo-Json -Depth 32 | Set-Content $live -Encoding utf8
+    Write-Ok "rdp tweaks - blur off, opacity $($d.opacity) kept, grayscale antialiasing"
+    Write-Info 'if it still looks opaque, the RDP client is not passing alpha through'
+}
+
 # ---------------------------------------------------------------------------
 # Install
 # ---------------------------------------------------------------------------
@@ -384,6 +450,18 @@ if ($Install) {
         [Security.Principal.WindowsIdentity]::GetCurrent()
     ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
+    # Fonts can be installed per-user without elevation, so handle them before
+    # deciding whether to prompt for admin at all. On a locked-down dev box this
+    # is often the difference between a working prompt and a screen of boxes.
+    if (-not $isAdmin) {
+        $stillPending = @()
+        foreach ($p in $pending) {
+            if ($p.fontUrl -and (Install-FontPerUser -Url $p.fontUrl -Filter $p.fontFilter -Label $p.id)) { continue }
+            $stillPending += $p
+        }
+        $pending = $stillPending
+    }
+
     if (-not $pending) {
         Write-Ok 'all packages already installed - nothing to do'
     }
@@ -452,11 +530,18 @@ if ($Apply) {
         Copy-Config -From $c.Repo -To $c.Live -Label $c.Name
     }
     Set-GitInclude
+    if ($RdpTweaks) { Set-RdpTweaks }
+    elseif ($env:SESSIONNAME -like 'RDP-*') {
+        Write-Info 'remote session detected - re-run with -RdpTweaks if acrylic looks flat'
+    }
     Write-Host "`nOpen a NEW terminal tab to pick up the changes." -ForegroundColor Cyan
 }
 
 if ($Capture) {
     Write-Step 'Capturing configs from this machine into the repo'
+    if ($env:SESSIONNAME -like 'RDP-*') {
+        Write-Warn 'remote session: if you ran -RdpTweaks here, do not commit the Windows Terminal change'
+    }
     foreach ($c in Get-ConfigMap) {
         if ($c.Skip) { Write-Info "$($c.Name) - not installed here, skipped"; continue }
         Copy-Config -From $c.Live -To $c.Repo -Label $c.Name

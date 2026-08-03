@@ -66,6 +66,32 @@ a UAC prompt per package. `-NoElevate` opts out.
 > monorepo machines run the VFS-for-Git fork (`Microsoft.Git`), and installing
 > stock Git over it would shadow it on `PATH`.
 
+## Dev boxes and RDP
+
+Windows Terminal renders on the machine you RDP *into*, so the font and configs
+must be installed **there**, not on your laptop:
+
+```powershell
+git clone https://github.com/Shivam60/dotfiles.git $HOME\dotfiles
+cd $HOME\dotfiles
+.\bootstrap.ps1 -Apply -RdpTweaks
+```
+
+Two things differ in a remote session:
+
+- **Fonts.** winget's font package needs admin, which dev boxes often withhold.
+  `-Install` falls back to downloading the Nerd Font and registering it under
+  `HKCU` + `%LOCALAPPDATA%\Microsoft\Windows\Fonts`, which needs no elevation and
+  takes effect immediately. Without the font every glyph renders as a box.
+- **Transparency.** `useAcrylic` is the frosted-*blur* effect and relies on local
+  hardware composition, so it never renders over RDP. Plain `opacity` is only an
+  alpha value on the window and does work remotely on Windows 11 — so
+  `-RdpTweaks` drops the blur, **keeps the see-through look**, and switches
+  antialiasing to `grayscale` (ClearType fringes under RDP compression).
+
+`-RdpTweaks` patches only the live file; the repo copy stays canonical for local
+machines. Don't `-Capture` on a dev box afterwards, or you'll commit the tweak.
+
 ## What's in here
 
 | Path | Goes to |
