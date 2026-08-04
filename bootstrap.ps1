@@ -208,6 +208,9 @@ function Get-ConfigMap {
             Live = Join-Path $wtDir 'settings.json'
             # Only if Windows Terminal is actually installed on this machine.
             Skip = -not (Test-Path $wtDir)
+            # The Nerd Font family name differs by install source, so pick one
+            # that actually exists here instead of trusting the stored name.
+            Transform = { param($text) Convert-TerminalFont $text }
         }
         [pscustomobject]@{
             Name = 'winget'
@@ -246,13 +249,17 @@ function Get-ConfigMap {
 }
 
 function Copy-Config {
-    param([string]$From, [string]$To, [string]$Label)
+    param([string]$From, [string]$To, [string]$Label, [scriptblock]$Transform)
 
     if (-not (Test-Path $From)) { Write-Warn "$Label - source missing, skipped ($From)"; return }
 
     # Test-Path is true for a dangling symlink, so confirm it is actually readable.
     try { $new = [System.IO.File]::ReadAllText($From) }
     catch { Write-Warn "$Label - source unreadable, skipped ($From)"; return }
+
+    # Adapt the content to this machine before comparing, so a machine-specific
+    # value does not read as a difference and trigger a copy on every run.
+    if ($Transform) { $new = & $Transform $new }
 
     $dir = Split-Path $To -Parent
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
@@ -571,13 +578,73 @@ if ($Install) {
 }
 
 # ---------------------------------------------------------------------------
+# Font face resolution
+# ---------------------------------------------------------------------------
+# The same Nerd Font lands under different family names depending on how it was
+# installed: the winget package (DEVCOM.JetBrainsMonoNerdFont) registers the
+# abbreviated "JetBrainsMono NFM", while the release zip we fall back to for
+# no-admin installs registers "JetBrainsMono Nerd Font Mono". Windows Terminal
+# pops "Unable to find the following fonts" whenever settings.json names one
+# that is not present, so resolve it per machine instead of hardcoding.
+$script:FontCandidates = @(
+    'JetBrainsMono Nerd Font Mono'
+    'JetBrainsMono NFM'
+    'JetBrainsMono Nerd Font'
+    'JetBrainsMono NF'
+    'JetBrainsMonoNL NFM'
+    'Cascadia Mono'      # ships with Windows, so this always resolves
+    'Consolas'
+)
+
+function Get-InstalledFontFamily {
+    try {
+        Add-Type -AssemblyName System.Drawing -ErrorAction Stop
+        return (New-Object System.Drawing.Text.InstalledFontCollection).Families.Name
+    } catch { return @() }
+}
+
+function Resolve-FontFace {
+    $installed = Get-InstalledFontFamily
+    if (-not $installed) { return $null }
+    foreach ($f in $script:FontCandidates) {
+        if ($installed -contains $f) { return $f }
+    }
+    return $null
+}
+
+# Rewrite profiles.defaults.font.face inside Windows Terminal settings *content*,
+# returning the adjusted JSON. Works on text so Copy-Config can compare the
+# result against the live file and skip the write when nothing changed.
+function Convert-TerminalFont {
+    param([string]$Text)
+
+    try { $json = $Text | ConvertFrom-Json } catch { return $Text }
+    $defaults = $json.profiles.defaults
+    if (-not $defaults -or -not $defaults.font -or -not $defaults.font.face) { return $Text }
+
+    $wanted = $defaults.font.face
+    $installed = Get-InstalledFontFamily
+    if (-not $installed -or $installed -contains $wanted) { return $Text }
+
+    $face = Resolve-FontFace
+    if (-not $face) {
+        Write-Warn "font - '$wanted' is not installed and no fallback was found; run -Only DEVCOM.JetBrainsMonoNerdFont"
+        return $Text
+    }
+
+    Write-Info "font - '$wanted' not installed here, using '$face'"
+    $defaults.font.face = $face
+    return ($json | ConvertTo-Json -Depth 32)
+}
+
+# ---------------------------------------------------------------------------
 # Apply / Capture
 # ---------------------------------------------------------------------------
 if ($Apply) {
     Write-Step 'Applying configs to this machine'
     foreach ($c in Get-ConfigMap) {
         if ($c.Skip) { Write-Info "$($c.Name) - not installed here, skipped"; continue }
-        Copy-Config -From $c.Repo -To $c.Live -Label $c.Name
+        Copy-Config -From $c.Repo -To $c.Live -Label $c.Name -Transform $c.Transform
     }
     Set-GitInclude
     if ($RdpTweaks) { Set-RdpTweaks }
@@ -596,6 +663,20 @@ if ($Capture) {
         if ($c.Skip) { Write-Info "$($c.Name) - not installed here, skipped"; continue }
         if ($c.NoCapture) { continue }
         Copy-Config -From $c.Live -To $c.Repo -Label $c.Name
+    }
+    # The live file names whatever font this machine resolved to. Put the canonical
+    # name back so machines with different Nerd Font builds don't fight over it.
+    $__wtRepo = (Get-ConfigMap | Where-Object { $_.Name -eq 'Windows Terminal' }).Repo
+    if ($__wtRepo -and (Test-Path $__wtRepo)) {
+        try {
+            $__j = Get-Content $__wtRepo -Raw | ConvertFrom-Json
+            if ($__j.profiles.defaults.font.face -and
+                $__j.profiles.defaults.font.face -ne $script:FontCandidates[0]) {
+                $__j.profiles.defaults.font.face = $script:FontCandidates[0]
+                $__j | ConvertTo-Json -Depth 32 | Set-Content $__wtRepo -Encoding UTF8
+                Write-Info "font - normalised repo copy to '$($script:FontCandidates[0])'"
+            }
+        } catch { Write-Warn 'font - could not normalise repo copy' }
     }
     Write-Host "`nReview with 'git diff', then commit and push." -ForegroundColor Cyan
 }
