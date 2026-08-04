@@ -1,0 +1,96 @@
+" ============================================================
+"  _vimrc  -  LeetCode/NeetCode Python setup
+" ============================================================
+
+set nocompatible
+syntax on
+filetype plugin indent on
+
+" ----- Sensible defaults -----
+set number              " line numbers
+set ruler               " show cursor position
+set showcmd
+set incsearch
+set hlsearch
+set ignorecase
+set smartcase
+set backspace=indent,eol,start
+set clipboard=unnamed   " yank to system clipboard (copy-paste to NeetCode)
+set encoding=utf-8
+
+" ----- Global indentation defaults -----
+set autoindent
+set smartindent
+set expandtab           " insert spaces, never real tab characters
+set tabstop=4
+set shiftwidth=4
+set softtabstop=4
+
+" ============================================================
+"  Python-specific: PEP8 / LeetCode friendly
+"  4 spaces, no real tabs -> pastes cleanly into NeetCode
+" ============================================================
+augroup python_leetcode
+  autocmd!
+  autocmd FileType python setlocal
+        \ expandtab
+        \ tabstop=4
+        \ shiftwidth=4
+        \ softtabstop=4
+        \ autoindent
+        \ smartindent
+        \ fileformat=unix
+
+  " Show any stray tab characters so mixed indentation is obvious
+  autocmd FileType python setlocal list listchars=tab:>-,trail:.
+augroup END
+
+" ----- Strip trailing whitespace on save (Python) -----
+autocmd BufWritePre *.py %s/\s\+$//e
+
+" ============================================================
+"  Cheat Sheet side panel (right side)
+" ============================================================
+" expand('~') is reliable everywhere; $HOME is not always set for the
+" MSYS vim that ships with Git for Windows.
+let g:cheatsheet_file  = expand('~/vim-cheatsheet.txt')
+let g:cheatsheet_width = 34
+
+function! OpenCheatSheet()
+  " already open? do nothing
+  if bufexists('cheatsheet') && bufwinnr(bufnr('cheatsheet')) != -1
+    return
+  endif
+  if !filereadable(g:cheatsheet_file)
+    return
+  endif
+  " open on the far right
+  execute 'botright vertical ' . g:cheatsheet_width . 'vsplit ' . g:cheatsheet_file
+  " make it a fixed, non-editable helper window
+  setlocal buftype=nofile bufhidden=hide noswapfile
+  setlocal nomodifiable readonly
+  setlocal nonumber norelativenumber nowrap
+  setlocal winfixwidth nocursorline
+  setlocal filetype=cheatsheet
+  silent! file cheatsheet
+  " jump focus back to the editing window on the left
+  wincmd h
+endfunction
+
+function! ToggleCheatSheet()
+  let l:win = bufwinnr('cheatsheet')
+  if l:win != -1
+    execute l:win . 'wincmd c'
+  else
+    call OpenCheatSheet()
+  endif
+endfunction
+
+command! Cheat call ToggleCheatSheet()
+nnoremap <silent> <Space>c :call ToggleCheatSheet()<CR>
+
+" Auto-open when editing a real Python file
+autocmd FileType python if &buftype ==# '' | call OpenCheatSheet() | endif
+
+" Auto-open on startup even with no file / non-python file
+autocmd VimEnter * if &buftype ==# '' && bufname('%') !=# 'cheatsheet' | call OpenCheatSheet() | endif

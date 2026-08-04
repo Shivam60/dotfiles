@@ -220,6 +220,28 @@ function Get-ConfigMap {
             Repo = Join-Path $repo 'config\nvim\init.lua'
             Live = Join-Path $env:LOCALAPPDATA 'nvim\init.lua'
         }
+        [pscustomobject]@{
+            Name = 'vim'
+            Repo = Join-Path $repo 'config\vim\_vimrc'
+            Live = Join-Path $HOME '_vimrc'
+        }
+        [pscustomobject]@{
+            # Git for Windows bundles an MSYS vim, which is a unix build: it reads
+            # ~/.vimrc and ignores ~/_vimrc entirely. Ship both so :Cheat works
+            # whether `vim` is real Vim for Windows or Git's.
+            Name = 'vim (git bash)'
+            Repo = Join-Path $repo 'config\vim\_vimrc'
+            Live = Join-Path $HOME '.vimrc'
+            # Mirror of the entry above - capturing it too would race with _vimrc
+            # over the same repo file.
+            NoCapture = $true
+        }
+        [pscustomobject]@{
+            # Sourced by _vimrc's :Cheat split - useless without it.
+            Name = 'vim cheat sheet'
+            Repo = Join-Path $repo 'config\vim\vim-cheatsheet.txt'
+            Live = Join-Path $HOME 'vim-cheatsheet.txt'
+        }
     )
 }
 
@@ -572,6 +594,7 @@ if ($Capture) {
     }
     foreach ($c in Get-ConfigMap) {
         if ($c.Skip) { Write-Info "$($c.Name) - not installed here, skipped"; continue }
+        if ($c.NoCapture) { continue }
         Copy-Config -From $c.Live -To $c.Repo -Label $c.Name
     }
     Write-Host "`nReview with 'git diff', then commit and push." -ForegroundColor Cyan

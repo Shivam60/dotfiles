@@ -55,34 +55,51 @@ function clean { & $env:MSBUILD $REDACTED_APP_PROJ /t:Clean $COMMON_PROPS }
 
 $env:COLORTERM = "truecolor"
 
-# Vim
-$env:VIM = "C:\Users\USER\AppData\Local\Programs\Vim"
-$env:VIMRUNTIME = "C:\Users\USER\AppData\Local\Programs\Vim\runtime"
-$env:PATH = "$env:PATH;C:\Users\USER\AppData\Local\Programs\Vim"
-
-$env:VIM_EXE = "C:\Users\USER\AppData\Local\Programs\Vim\vim.exe"
-
-# Open a Windows Terminal split: left = vim editing the given file, right = vim cheat sheet.
-# Inner panes use -NoProfile so they call real vim.exe directly (avoids recursing into the vim() wrapper below).
-function Open-LeetCodeSplit {
-    param([string]$file = "pract.py")
-    if (!(Test-Path $file)) { New-Item -ItemType File -Path $file | Out-Null }
-    $abs = (Resolve-Path $file).Path
-    $cheat = "$env:USERPROFILE\vim_cheatsheet.txt"
-    wt -w 0 nt --title "LeetCode" powershell -NoProfile -NoExit -Command "& '$env:VIM_EXE' `"$abs`"" `; split-pane -V -s 0.3 powershell -NoProfile -NoExit -Command "Get-Content -Path `"$cheat`""
+# Vim. Resolve at runtime: the install location differs per machine, and a
+# hardcoded path silently breaks `vim` everywhere it does not exist.
+# Clear stale values first - they are inherited by child processes, so a bad
+# VIMRUNTIME from a parent shell would keep breaking vim even after this fix.
+# A VIMRUNTIME pointing at a missing directory is worse than none at all: vim
+# loads no runtime files, stays 'compatible', and then errors on the system
+# vimrc's line continuations (E10).
+foreach ($__v in 'VIM', 'VIMRUNTIME', 'VIM_EXE') {
+    $__cur = [Environment]::GetEnvironmentVariable($__v)
+    if ($__cur -and -not (Test-Path $__cur)) { Set-Item "Env:$__v" '' }
 }
 
-function leet { param([string]$file = "pract.py"); Open-LeetCodeSplit $file }
+$__vimHome = @(
+    "$env:LOCALAPPDATA\Programs\Vim"
+    "$env:ProgramFiles\Vim"
+    "${env:ProgramFiles(x86)}\Vim"
+) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 
-# Override `vim`: opening a single file launches the split cheat-sheet layout;
-# any other usage (flags, multiple args, no args) passes straight through to real vim.exe.
-function vim {
-    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$FileArgs)
-    if ($FileArgs.Count -eq 1 -and $FileArgs[0] -notmatch '^-') {
-        Open-LeetCodeSplit $FileArgs[0]
-    } else {
-        & $env:VIM_EXE @FileArgs
+if ($__vimHome) {
+    # Vim ships as <home>\vim91\vim.exe; fall back to <home>\vim.exe.
+    $__vimExe = Get-ChildItem -Path $__vimHome -Filter vim.exe -Recurse -Depth 1 -ErrorAction SilentlyContinue |
+                Select-Object -First 1 -ExpandProperty FullName
+    if ($__vimExe) {
+        $env:VIM_EXE = $__vimExe
+        $__vimDir = Split-Path $__vimExe -Parent
+        $env:VIM = $__vimHome
+        if (Test-Path "$__vimDir\..\runtime") { $env:VIMRUNTIME = (Resolve-Path "$__vimDir\..\runtime").Path }
+        elseif (Test-Path "$__vimDir\runtime") { $env:VIMRUNTIME = "$__vimDir\runtime" }
+        if ($env:PATH -notlike "*$__vimDir*") { $env:PATH = "$env:PATH;$__vimDir" }
     }
+}
+if (-not $env:VIM_EXE) {
+    # Not in a standard location - fall back to whatever is on PATH.
+    $__onPath = Get-Command vim.exe -ErrorAction SilentlyContinue
+    if ($__onPath) { $env:VIM_EXE = $__onPath.Source }
+}
+
+# The cheat-sheet split is drawn by vim itself (_vimrc -> OpenCheatSheet, toggled
+# with :Cheat or <Space>c). Do NOT recreate it with a Windows Terminal split-pane:
+# that gives two separate shells, and vim would then draw its own split inside the
+# left one anyway. `leet` just opens a practice file in normal vim.
+function leet {
+    param([string]$file = "pract.py")
+    if (!(Test-Path $file)) { New-Item -ItemType File -Path $file | Out-Null }
+    if ($env:VIM_EXE) { & $env:VIM_EXE (Resolve-Path $file).Path } else { vim $file }
 }
 
 # ===========================================================================

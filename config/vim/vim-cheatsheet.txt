@@ -1,0 +1,73 @@
+══════════════════════════════
+  VIM CHEAT SHEET
+  (most used → least)
+══════════════════════════════
+
+── COPY / PASTE ──────────────
+ yy    copy (yank) line
+ y     copy selection
+ yw    copy word
+ p     paste after
+ P     paste before
+ dd    cut line
+ x     delete char
+ u     undo
+ Ctrl+r  redo
+
+── MOVE ──────────────────────
+ h j k l  ← ↓ ↑ →
+ w     next word
+ b     prev word
+ 0     line start
+ $     line end
+ gg    top of file
+ G     bottom of file
+ :n    go to line n
+ Ctrl+d  half page down
+ Ctrl+u  half page up
+
+── EDIT MODES ────────────────
+ i     insert (before)
+ a     append (after)
+ o     new line below
+ O     new line above
+ Esc   back to normal
+ v     visual select
+ V     select whole line
+ Ctrl+v  block select
+
+── SELECT ALL + COPY ─────────
+ ggVG    select whole file
+ ggVGy   select all + copy
+
+── SEARCH / REPLACE ──────────
+ /text   search forward
+ n       next match
+ N       prev match
+ :%s/a/b/g  replace all a→b
+ *       search word under cursor
+
+── DELETE / CHANGE ───────────
+ dw    delete word
+ d$    delete to line end
+ cw    change word
+ cc    change whole line
+ D     delete to end
+ C     change to end
+
+── LINES ─────────────────────
+ >>    indent right
+ <<    indent left
+ ==    auto-indent line
+ J     join line below
+
+── FILE ──────────────────────
+ :w    save
+ :q    quit
+ :wq   save + quit
+ :q!   quit no save
+
+── PANEL ─────────────────────
+ <Space>c  toggle this panel
+
+══════════════════════════════
