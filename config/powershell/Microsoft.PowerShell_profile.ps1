@@ -1,8 +1,5 @@
 if (Test-Path C:\REDACTED_PROJECT\src) { Set-Location C:\REDACTED_PROJECT\src }
 $env:DOTNET_ROOT = "C:\Program Files\dotnet"
-if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
-    Set-PSReadLineOption -PredictionViewStyle ListView
-}
 
 # Add Git usr/bin to PATH (provides grep, awk, sed, etc.)
 $env:PATH = "C:\Program Files\Git\usr\bin;$env:PATH"
@@ -64,7 +61,12 @@ $env:COLORTERM = "truecolor"
 # vimrc's line continuations (E10).
 foreach ($__v in 'VIM', 'VIMRUNTIME', 'VIM_EXE') {
     $__cur = [Environment]::GetEnvironmentVariable($__v)
-    if ($__cur -and -not (Test-Path $__cur)) { Set-Item "Env:$__v" '' }
+    if ($__cur -and -not (Test-Path $__cur)) {
+        # Remove-Item genuinely deletes it. [Environment]::SetEnvironmentVariable(x, $null)
+        # does not work from PowerShell: $null marshals to "" and leaves the
+        # variable defined-but-empty, which vim treats as a real (broken) value.
+        Remove-Item "Env:$__v" -ErrorAction SilentlyContinue
+    }
 }
 
 $__vimHome = @(
@@ -158,7 +160,15 @@ if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
     }
 
     # --- PSReadLine: predictions + Tokyo Night syntax colors ---
-    Set-PSReadLineOption -PredictionSource HistoryAndPlugin -PredictionViewStyle ListView
+    # ListView shows history/plugin suggestions as a dropdown list under the prompt.
+    # It throws if the console has no virtual-terminal support (some remote or
+    # redirected hosts), so fall back to inline rather than erroring at startup.
+    Import-Module PSReadLine -ErrorAction SilentlyContinue
+    try {
+        Set-PSReadLineOption -PredictionSource HistoryAndPlugin -PredictionViewStyle ListView
+    } catch {
+        try { Set-PSReadLineOption -PredictionSource History } catch { }
+    }
     Set-PSReadLineOption -HistorySearchCursorMovesToEnd
     Set-PSReadLineOption -Colors @{
         Command            = "#7aa2f7"
