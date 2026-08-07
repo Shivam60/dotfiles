@@ -14,11 +14,12 @@ cd $HOME\dotfiles
 Run with no arguments and it prompts:
 
 ```
-  [1] Full setup          - install packages, then apply configs
+  [1] Full setup          - install packages, apply configs, apply Windows tweaks
   [2] Apply configs only  - terminal, prompt, git, nvim (no installing)
   [3] Install packages    - pick exactly which ones
-  [4] Capture configs     - copy my local edits back into this repo
-  [5] Preview             - show what Apply would change, write nothing
+  [4] Windows tweaks      - dark mode, taskbar, Explorer
+  [5] Capture configs     - copy my local edits back into this repo
+  [6] Preview             - show what Apply would change, write nothing
 ```
 
 Choosing *Install* then offers essentials / everything / pick-individually, where
@@ -40,6 +41,7 @@ Then open a **new** terminal tab.
 
 ```powershell
 git pull; .\bootstrap.ps1 -Apply    # take changes from the repo
+.\bootstrap.ps1 -Tweaks             # re-assert the Windows settings
 .\bootstrap.ps1 -Capture            # put local edits back into the repo
 git diff; git commit -am "..."; git push
 ```
@@ -99,6 +101,58 @@ repo lives.
 `-RdpTweaks` patches only the live file; the repo copy stays canonical for local
 machines. Don't `-Capture` on a dev box afterwards, or you'll commit the tweak.
 
+## Windows tweaks
+
+Dark mode, taskbar and Explorer settings are declared as data in
+[`windows-tweaks.json`](windows-tweaks.json) and applied by `lib/WindowsTweaks.ps1`.
+
+```powershell
+.\bootstrap.ps1 -Tweaks                        # the ones marked default
+.\bootstrap.ps1 -Tweaks -AllTweaks             # including the opt-in ones
+.\bootstrap.ps1 -Tweaks -TweakIds taskbar-left,hide-widgets
+.\bootstrap.ps1 -Tweaks -WhatIfCopy            # preview, writes nothing
+```
+
+Everything is idempotent — a tweak already in the desired state is reported and
+skipped, and Explorer or PowerToys is only restarted when something changed.
+All of it is per-user (`HKCU`), so none of it needs admin.
+
+**Adding a customization is a data change.** Add an entry to
+`windows-tweaks.json`; don't touch `bootstrap.ps1`:
+
+```json
+{
+  "id": "taskbar-left",
+  "name": "Align the taskbar to the left",
+  "default": false,
+  "refresh": "explorer",
+  "settings": [
+    { "path": "HKCU:\\…\\Explorer\\Advanced", "name": "TaskbarAl", "type": "DWord", "value": 0 }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `default` | applied by a plain `-Tweaks` run; `false` means opt-in |
+| `requires` | ids applied first, pulled in automatically |
+| `refresh` | `none`, `settingchange`, `explorer`, or `powertoys` |
+| `refreshNow` | refresh immediately rather than batching it at the end |
+| `settings` | registry (`path`/`name`/`type`/`value`) or `"kind": "json"` (`file`/`key`/`value`) |
+
+Tweaks run in the order they appear in the file.
+
+### Dark mode fights PowerToys
+
+PowerToys ships **Light Switch** enabled, which flips the theme on a schedule and
+will silently undo dark mode within seconds. So `dark-mode` `requires`
+`disable-lightswitch`, which turns that module off first. If dark mode ever
+un-sticks itself, that's the thing to check.
+
+Config files owned by a running app are edited via a temp file that's then moved
+into place, and the app is closed first — otherwise it holds the file open and
+rewrites it from memory on exit.
+
 ## What's in here
 
 | Path | Goes to |
@@ -109,6 +163,7 @@ machines. Don't `-Capture` on a dev box afterwards, or you'll commit the tweak.
 | `config/winget/settings.json` | `…/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe/LocalState/` |
 | `config/nvim/init.lua` | `%LOCALAPPDATA%\nvim\init.lua` |
 | `config/git/shared.gitconfig` | *included* from `~/.gitconfig` (not copied) |
+| `windows-tweaks.json` + `lib/WindowsTweaks.ps1` | Windows settings (registry / app config) |
 
 ### Machine-local overrides stay out of the repo
 

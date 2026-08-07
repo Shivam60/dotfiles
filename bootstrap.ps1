@@ -42,6 +42,11 @@ param(
     [switch]$NonInteractive,
     # Adjust the applied Windows Terminal settings for a remote session.
     [switch]$RdpTweaks,
+    # Apply Windows OS tweaks (dark mode, taskbar, Explorer) from windows-tweaks.json.
+    [switch]$Tweaks,
+    # Limit -Tweaks to these ids, or include the opt-in ones with -AllTweaks.
+    [string[]]$TweakIds,
+    [switch]$AllTweaks,
     # Used when re-launching elevated: the child cannot write to our console.
     [string]$LogFile
 )
@@ -53,8 +58,9 @@ if ($LogFile) { try { Start-Transcript -Path $LogFile -Force | Out-Null } catch 
 
 # When invoked via `pwsh -File`, PowerShell does NOT split "a,b" into an array,
 # it binds one string containing a comma. Normalise so both forms behave.
-$Groups = @($Groups | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
-$Only   = @($Only   | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+$Groups   = @($Groups   | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+$Only     = @($Only     | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+$TweakIds = @($TweakIds | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 
 function Write-Step { param([string]$m) Write-Host "`n=== $m ===" -ForegroundColor Cyan }
 function Write-Ok   { param([string]$m) Write-Host "  [ok]   $m" -ForegroundColor Green }
@@ -62,6 +68,10 @@ function Write-Warn { param([string]$m) Write-Host "  [warn] $m" -ForegroundColo
 function Write-Info { param([string]$m) Write-Host "  [..]   $m" -ForegroundColor DarkGray }
 
 $isTty = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
+
+# Engines live in lib/ so bootstrap.ps1 stays readable as the orchestrator.
+# Dot-sourced after the Write-* helpers because they are used inside.
+. (Join-Path $repo 'lib\WindowsTweaks.ps1')
 
 # ---------------------------------------------------------------------------
 # Interactive menu
@@ -119,6 +129,28 @@ function Read-MultiChoice {
     }
 }
 
+# Let the user tick individual tweaks. Defaults reflect the manifest's
+# `default` flag, so a plain Enter applies exactly what -Tweaks would.
+function Select-Tweaks {
+    $all = Get-TweakList -ManifestPath (Join-Path $repo 'windows-tweaks.json')
+    if (-not $all) { $script:Tweaks = $false; return }
+
+    $items = @(); $checked = @()
+    foreach ($t in $all) {
+        $state = if (Test-TweakApplied -Tweak $t) { 'already set' } else { $t.Group }
+        $items   += '{0,-42} {1}' -f $t.Name, $state
+        $checked += $t.Default
+    }
+
+    Write-Host ''
+    $checked = Read-MultiChoice -Prompt 'select tweaks' -Items $items -Checked $checked
+
+    $ids = @()
+    for ($i = 0; $i -lt $all.Count; $i++) { if ($checked[$i]) { $ids += $all[$i].Id } }
+    if (-not $ids) { Write-Host 'no tweaks selected.' -ForegroundColor DarkGray; $script:Tweaks = $false; return }
+    $script:TweakIds = $ids
+}
+
 function Invoke-Menu {
     Write-Host ''
     Write-Host '  dotfiles' -ForegroundColor Cyan -NoNewline
@@ -126,19 +158,21 @@ function Invoke-Menu {
     Write-Host ''
 
     $choice = Read-Choice -Prompt 'what do you want to do?' -Default '1' -Items @(
-        'Full setup          - install packages, then apply configs'
+        'Full setup          - install packages, apply configs, apply Windows tweaks'
         'Apply configs only  - terminal, prompt, git, nvim (no installing)'
         'Install packages    - pick exactly which ones'
+        'Windows tweaks      - dark mode, taskbar, Explorer'
         'Capture configs     - copy my local edits back into this repo'
         'Preview             - show what Apply would change, write nothing'
     )
 
     switch ($choice) {
-        1 { $script:Install = $true; $script:Apply = $true }
+        1 { $script:Install = $true; $script:Apply = $true; $script:Tweaks = $true }
         2 { $script:Apply = $true }
         3 { $script:Install = $true }
-        4 { $script:Capture = $true }
-        5 { $script:Apply = $true; $script:WhatIfCopy = $true }
+        4 { $script:Tweaks = $true; Select-Tweaks; return }
+        5 { $script:Capture = $true }
+        6 { $script:Apply = $true; $script:Tweaks = $true; $script:WhatIfCopy = $true }
     }
 
     if (-not $script:Install) { return }
@@ -178,9 +212,9 @@ function Invoke-Menu {
     $script:Groups = $allGroups
 }
 
-if (-not ($Install -or $Apply -or $Capture)) {
+if (-not ($Install -or $Apply -or $Capture -or $Tweaks)) {
     if ($isTty -and -not $NonInteractive) { Invoke-Menu }
-    else { $Install = $true; $Apply = $true }
+    else { $Install = $true; $Apply = $true; $Tweaks = $true }
 } elseif ($Menu) { Invoke-Menu }
 
 # ---------------------------------------------------------------------------
@@ -679,6 +713,12 @@ if ($Capture) {
         } catch { Write-Warn 'font - could not normalise repo copy' }
     }
     Write-Host "`nReview with 'git diff', then commit and push." -ForegroundColor Cyan
+}
+
+if ($Tweaks) {
+    Write-Step 'Applying Windows tweaks'
+    Invoke-WindowsTweaks -ManifestPath (Join-Path $repo 'windows-tweaks.json') `
+                         -Only $TweakIds -All:$AllTweaks -Preview:$WhatIfCopy
 }
 
 if ($LogFile) { try { Stop-Transcript | Out-Null } catch { } }

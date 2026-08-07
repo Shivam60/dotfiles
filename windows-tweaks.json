@@ -1,0 +1,177 @@
+{
+  "$comment": [
+    "Declarative Windows tweaks. Each entry is a named tweak with one or more",
+    "registry settings. To add a customization, add an entry here - do not edit",
+    "bootstrap.ps1. Everything is applied idempotently and can be previewed.",
+    "",
+    "  id       stable identifier, used with -Tweaks <id>",
+    "  default  applied by a plain -Tweaks run. false = opt-in only.",
+    "  requires ids that must be applied first (pulled in automatically)",
+    "  refresh  what must be restarted for it to take effect:",
+    "             none          takes effect immediately",
+    "             settingchange broadcast WM_SETTINGCHANGE (themes, colours)",
+    "             explorer      restart explorer.exe (taskbar, shell layout)",
+    "             powertoys     restart PowerToys (module enable/disable)",
+    "  refreshNow  do the refresh immediately instead of batching it at the",
+    "              end - needed when a later tweak depends on it.",
+    "  settings a list of desired states. Two kinds:",
+    "             registry (default) - path/name/type/value",
+    "             json               - file/key/value, key is dot-delimited.",
+    "                                  optional lockedBy: process name pattern",
+    "                                  to close first, for apps that hold their",
+    "                                  config open and rewrite it on exit.",
+    "",
+    "Tweaks run in the order they appear in this file.",
+    "",
+    "Verified on Windows 11 24H2 (build 26100)."
+  ],
+
+  "appearance": [
+    {
+      "id": "disable-lightswitch",
+      "name": "Stop PowerToys auto-switching light/dark",
+      "default": true,
+      "refresh": "powertoys",
+      "refreshNow": true,
+      "settings": [
+        {
+          "kind": "json",
+          "file": "%LOCALAPPDATA%\\Microsoft\\PowerToys\\settings.json",
+          "key": "enabled.LightSwitch",
+          "value": false,
+          "lockedBy": "PowerToys*",
+          "note": "PowerToys 'Light Switch' flips the theme on a schedule and will overwrite dark mode within seconds. It ships enabled."
+        }
+      ]
+    },
+    {
+      "id": "dark-mode",
+      "name": "Dark mode for apps and system",
+      "default": true,
+      "refresh": "settingchange",
+      "requires": [ "disable-lightswitch" ],
+      "settings": [
+        {
+          "path": "HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+          "name": "AppsUseLightTheme",
+          "type": "DWord",
+          "value": 0,
+          "note": "0 = dark. Controls app windows."
+        },
+        {
+          "path": "HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+          "name": "SystemUsesLightTheme",
+          "type": "DWord",
+          "value": 0,
+          "note": "0 = dark. Controls taskbar, Start and the tray."
+        }
+      ]
+    }
+  ],
+
+  "taskbar": [
+    {
+      "id": "hide-search",
+      "name": "Remove the taskbar search box",
+      "default": true,
+      "refresh": "explorer",
+      "settings": [
+        {
+          "path": "HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Search",
+          "name": "SearchboxTaskbarMode",
+          "type": "DWord",
+          "value": 0,
+          "note": "0 hidden, 1 icon, 2 box, 3 icon+label."
+        }
+      ]
+    },
+    {
+      "id": "hide-widgets",
+      "name": "Remove the Widgets button",
+      "default": false,
+      "refresh": "explorer",
+      "settings": [
+        {
+          "path": "HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+          "name": "TaskbarDa",
+          "type": "DWord",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": "hide-task-view",
+      "name": "Remove the Task View button",
+      "default": false,
+      "refresh": "explorer",
+      "settings": [
+        {
+          "path": "HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+          "name": "ShowTaskViewButton",
+          "type": "DWord",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": "taskbar-left",
+      "name": "Align the taskbar to the left",
+      "default": false,
+      "refresh": "explorer",
+      "settings": [
+        {
+          "path": "HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+          "name": "TaskbarAl",
+          "type": "DWord",
+          "value": 0
+        }
+      ]
+    }
+  ],
+
+  "explorer": [
+    {
+      "id": "show-file-extensions",
+      "name": "Show file extensions",
+      "default": false,
+      "refresh": "explorer",
+      "settings": [
+        {
+          "path": "HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+          "name": "HideFileExt",
+          "type": "DWord",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": "show-hidden-files",
+      "name": "Show hidden files",
+      "default": false,
+      "refresh": "explorer",
+      "settings": [
+        {
+          "path": "HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+          "name": "Hidden",
+          "type": "DWord",
+          "value": 1,
+          "note": "1 shows hidden files, 2 hides them."
+        }
+      ]
+    },
+    {
+      "id": "open-explorer-to-this-pc",
+      "name": "Open Explorer on This PC instead of Home",
+      "default": false,
+      "refresh": "explorer",
+      "settings": [
+        {
+          "path": "HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+          "name": "LaunchTo",
+          "type": "DWord",
+          "value": 1
+        }
+      ]
+    }
+  ]
+}
