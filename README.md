@@ -110,6 +110,21 @@ machines. Don't `-Capture` on a dev box afterwards, or you'll commit the tweak.
 | `config/nvim/init.lua` | `%LOCALAPPDATA%\nvim\init.lua` |
 | `config/git/shared.gitconfig` | *included* from `~/.gitconfig` (not copied) |
 
+### Machine-local overrides stay out of the repo
+
+This repo is public, so anything work-specific — internal project paths, build
+helpers, employer hostnames — must never be committed. The profile sources
+`~/.config/pwsh/local.ps1` as its **last** step, if that file exists:
+
+```powershell
+# ~/.config/pwsh/local.ps1   (not in this repo, never committed)
+$env:MSBUILD = "C:\Program Files\...\MSBuild.exe"
+function build { & $env:MSBUILD $MY_PROJ }
+```
+
+Because it loads last it can override anything the shared profile sets. Put
+per-machine and work-only configuration there, not in `config/powershell/`.
+
 ### git config is split on purpose
 
 `~/.gitconfig` holds corp identity, credential endpoints and an AAD tenant ID —

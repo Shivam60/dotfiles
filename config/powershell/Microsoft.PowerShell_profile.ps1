@@ -1,54 +1,7 @@
-if (Test-Path C:\REDACTED_PROJECT\src) { Set-Location C:\REDACTED_PROJECT\src }
 $env:DOTNET_ROOT = "C:\Program Files\dotnet"
 
 # Add Git usr/bin to PATH (provides grep, awk, sed, etc.)
 $env:PATH = "C:\Program Files\Git\usr\bin;$env:PATH"
-
-# REDACTED_PROJECT Build Aliases
-$env:MSBUILD = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Current\Bin\MSBuild.exe"
-$SLNDIR = "C:\REDACTED_PROJECT\src\"
-$REDACTED_APP_PROJ = "C:\REDACTED_PROJECT\src\REDACTED_APP\REDACTED_APP.vcxproj"
-$REDACTED_PACKAGE_PROJ = "C:\REDACTED_PROJECT\src\REDACTED_PACKAGE\REDACTED_PACKAGE.wapproj"
-$COMMON_PROPS = @("/p:Configuration=Debug", "/p:Platform=x64", "/p:SolutionDir=$SLNDIR", "/p:VcpkgEnableManifest=false", "/v:minimal")
-
-# Resolve vcxproj and relative file path. Add new elseif branches here to support more projects.
-function Get-VcxProj($file) {
-    if ($file -match 'REDACTED_LIB[\\\/]') { return "C:\REDACTED_PROJECT\src\REDACTED_LIB\REDACTED_LIB.vcxproj" }
-    # Default: REDACTED_APP
-    return $REDACTED_APP_PROJ
-}
-
-# Extract file path relative to its project folder (e.g. Telemetry\Foo.cpp from REDACTED_LIB\Telemetry\Foo.cpp)
-function Get-SelectedFile($file) {
-    if ($file -match '(?i)REDACTED_LIB[\\\/](.+)$') { return $matches[1] }
-    if ($file -match '(?i)REDACTED_APP[\\\/](.+)$') { return $matches[1] }
-    return Split-Path $file -Leaf
-}
-
-# Compile a single file with optional code analysis
-function Invoke-CompileFile($file, [bool]$codeAnalysis = $false) {
-    if (!(Test-Path $file)) { Write-Host "File not found: $file" -ForegroundColor Red; return }
-    $absPath = (Resolve-Path $file).Path
-    $proj = Get-VcxProj $absPath
-    $sel = Get-SelectedFile $absPath
-    Write-Host "Project: $proj | File: $absPath" -ForegroundColor Cyan
-    & $env:MSBUILD $proj $COMMON_PROPS /t:ClCompile /p:SelectedFiles=$sel /p:BuildProjectReferences=false /p:RunCodeAnalysis=$codeAnalysis
-}
-
-# Compile a single file (fastest, no link, no analysis)
-function compile($file) { Invoke-CompileFile $file $false }
-
-# Compile a single file with Code Analysis (matches CI)
-function analyze($file) { Invoke-CompileFile $file $true }
-
-# Build REDACTED_APP (compile + link, no deploy)
-function build { & $env:MSBUILD $REDACTED_APP_PROJ $COMMON_PROPS }
-
-# Build + package + deploy as MSIX app
-function deploy { & $env:MSBUILD $REDACTED_PACKAGE_PROJ $COMMON_PROPS }
-
-# Clean build artifacts (removes obj, bin folders)
-function clean { & $env:MSBUILD $REDACTED_APP_PROJ /t:Clean $COMMON_PROPS }
 
 $env:COLORTERM = "truecolor"
 
@@ -250,3 +203,12 @@ if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
     }
 }
 
+
+# ---------------------------------------------------------------------------
+# Machine-local overrides. Not in this repo, and never committed: this is where
+# work-specific build helpers, internal paths and per-machine tweaks live.
+# Create ~/.config/pwsh/local.ps1 and it gets sourced last, so it can override
+# anything above.
+# ---------------------------------------------------------------------------
+$__local = Join-Path $HOME '.config\pwsh\local.ps1'
+if (Test-Path $__local) { . $__local }
