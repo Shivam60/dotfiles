@@ -4,6 +4,7 @@
     "probe  - a command name or file path. If it resolves, the package counts as",
     "         installed no matter how it got there (winget, scoop, MSI, corp image).",
     "altIds - other winget IDs that satisfy the same need; if any is present, skip.",
+    "extraArgs - extra winget arguments, e.g. pinning --source msstore.",
     "font   - match an installed font family instead of asking winget."
   ],
 
@@ -40,6 +41,8 @@
 
   "apps": [
     { "id": "Microsoft.PowerToys" },
+    { "id": "9MZ95KL8MR0L", "probe": "SnippingTool", "extraArgs": [ "--source", "msstore" ],
+      "note": "Snipping Tool (Win+Shift+S). msstore package, so pin the source. Probe by the app execution alias: it is an Appx, and 'winget list' does not report it as installed." },
     { "id": "Google.Chrome" },
     { "id": "Obsidian.Obsidian" },
     { "id": "Bruno.Bruno" },
