@@ -82,6 +82,7 @@ function Get-TweakList {
                 RefreshNow = [bool]$t.refreshNow
                 Requires   = @($t.requires)
                 Settings   = $t.settings
+                Pins       = $t.pins
             }
         }
     }
@@ -203,9 +204,92 @@ function Set-Setting {
                      -PropertyType $Setting.type -Force | Out-Null
 }
 
+# --- Taskbar pins -----------------------------------------------------------
+# Windows 11 has no API for pinning, and the old Taskband registry blob is not
+# reliable. The supported route is a LayoutModification.xml: Explorer re-reads
+# it when the file is newer than Taskband\LayoutXMLLastModified, which is what
+# makes this work on a profile that already exists.
+#
+# Note this declares the ENTIRE pin list (PinListPlacement="Replace"), so
+# anything not listed gets unpinned.
+
+$script:TaskbarLayoutPath = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Shell\LayoutModification.xml'
+
+# Each pin lists candidate .lnk paths (first one present wins) or an AUMID for
+# Store apps, which have no shortcut. An app that isn't installed is skipped
+# rather than pinned to a dead target.
+function Resolve-PinTarget {
+    param([pscustomobject]$Pin)
+
+    foreach ($cand in @($Pin.lnk)) {
+        if (-not $cand) { continue }
+        $full = [Environment]::ExpandEnvironmentVariables($cand)
+        $hit  = @(Get-Item -Path $full -ErrorAction SilentlyContinue)
+        if ($hit.Count) { return [pscustomobject]@{ Kind = 'lnk'; Value = $hit[0].FullName } }
+    }
+    if ($Pin.aumid) { return [pscustomobject]@{ Kind = 'aumid'; Value = $Pin.aumid } }
+    return $null
+}
+
+function New-TaskbarLayoutXml {
+    param([array]$Pins)
+
+    $entries = @()
+    foreach ($pin in $Pins) {
+        $t = Resolve-PinTarget -Pin $pin
+        if (-not $t) { continue }
+        $entries += if ($t.Kind -eq 'aumid') {
+            '        <taskbar:UWA AppUserModelID="{0}" />' -f $t.Value
+        } else {
+            '        <taskbar:DesktopApp DesktopApplicationLinkPath="{0}" />' -f $t.Value
+        }
+    }
+    if (-not $entries) { return $null }
+
+    @(
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<LayoutModificationTemplate'
+        '    xmlns="http://schemas.microsoft.com/Start/2014/LayoutModification"'
+        '    xmlns:defaultlayout="http://schemas.microsoft.com/Start/2014/FullDefaultLayout"'
+        '    xmlns:start="http://schemas.microsoft.com/Start/2014/StartLayout"'
+        '    xmlns:taskbar="http://schemas.microsoft.com/Start/2014/TaskbarLayout"'
+        '    Version="1">'
+        '  <CustomTaskbarLayoutCollection PinListPlacement="Replace">'
+        '    <defaultlayout:TaskbarLayout>'
+        '      <taskbar:TaskbarPinList>'
+        $entries
+        '      </taskbar:TaskbarPinList>'
+        '    </defaultlayout:TaskbarLayout>'
+        '  </CustomTaskbarLayoutCollection>'
+        '</LayoutModificationTemplate>'
+    ) -join "`r`n"
+}
+
+function Test-PinsApplied {
+    param([pscustomobject]$Tweak)
+
+    $wanted = New-TaskbarLayoutXml -Pins $Tweak.Pins
+    if (-not $wanted) { return $true }              # nothing installed to pin
+    if (-not (Test-Path $script:TaskbarLayoutPath)) { return $false }
+    $have = Get-Content $script:TaskbarLayoutPath -Raw
+    return ($have -replace "`r`n", "`n").Trim() -eq ($wanted -replace "`r`n", "`n").Trim()
+}
+
+function Set-Pins {
+    param([pscustomobject]$Tweak)
+
+    $xml = New-TaskbarLayoutXml -Pins $Tweak.Pins
+    if (-not $xml) { throw 'none of the apps to pin are installed' }
+
+    $dir = Split-Path $script:TaskbarLayoutPath -Parent
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    Set-Content -Path $script:TaskbarLayoutPath -Value $xml -Encoding UTF8
+}
+
 function Test-TweakApplied {
     param([pscustomobject]$Tweak)
 
+    if ($Tweak.Pins) { return Test-PinsApplied -Tweak $Tweak }
     foreach ($s in $Tweak.Settings) {
         if (-not (Test-SettingApplied -Setting $s)) { return $false }
     }
@@ -215,6 +299,7 @@ function Test-TweakApplied {
 function Set-Tweak {
     param([pscustomobject]$Tweak)
 
+    if ($Tweak.Pins) { Set-Pins -Tweak $Tweak; return }
     foreach ($s in $Tweak.Settings) { Set-Setting -Setting $s }
 }
 

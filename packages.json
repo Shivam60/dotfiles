@@ -45,6 +45,9 @@
       "note": "Snipping Tool (Win+Shift+S). msstore package, so pin the source. Probe by the app execution alias: it is an Appx, and 'winget list' does not report it as installed." },
     { "id": "Google.Chrome" },
     { "id": "Obsidian.Obsidian" },
+    { "id": "XPFFZHVGQWWLHB", "probe": "%ProgramFiles%\\Microsoft Office\\root\\Office16\\ONENOTE.EXE",
+      "altIds": [ "Microsoft.Office" ], "extraArgs": [ "--source", "msstore" ],
+      "note": "OneNote. Already present wherever Microsoft 365 is installed, hence the Office probe and altId; the msstore package is only for machines without Office." },
     { "id": "Bruno.Bruno" },
     { "id": "Microsoft.RemoteDesktopClient" },
     { "id": "Google.GoogleDrive" }

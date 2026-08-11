@@ -139,8 +139,26 @@ All of it is per-user (`HKCU`), so none of it needs admin.
 | `refresh` | `none`, `settingchange`, `explorer`, or `powertoys` |
 | `refreshNow` | refresh immediately rather than batching it at the end |
 | `settings` | registry (`path`/`name`/`type`/`value`) or `"kind": "json"` (`file`/`key`/`value`) |
+| `pins` | taskbar pin list — see below; use instead of `settings` |
 
 Tweaks run in the order they appear in the file.
+
+### Taskbar pins
+
+The `taskbar-pins` tweak writes a `LayoutModification.xml` to
+`%LOCALAPPDATA%\Microsoft\Windows\Shell\` and restarts Explorer. Windows 11 has
+no pinning API, and the old `Taskband` registry blob is unreliable — this is the
+supported route, and it works on an existing profile because Explorer re-reads
+the file when it's newer than `Taskband\LayoutXMLLastModified`.
+
+Two things to know:
+
+- It declares the **whole** pin list, so anything not listed gets unpinned.
+  Order in the manifest is the order on the taskbar.
+- Apps that aren't installed are skipped, not pinned to a dead shortcut. Each
+  entry lists candidate `.lnk` paths (first one found wins). Store apps have no
+  shortcut, so pin those by `aumid` — find one with
+  `Get-StartApps | Where-Object Name -match 'Terminal'`.
 
 ### Dark mode fights PowerToys
 

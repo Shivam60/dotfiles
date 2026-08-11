@@ -86,6 +86,36 @@
       ]
     },
     {
+      "id": "taskbar-pins",
+      "name": "Pin my apps to the taskbar",
+      "default": true,
+      "refresh": "explorer",
+      "$note": [
+        "This declares the WHOLE pin list - anything not listed is unpinned.",
+        "Order here is the order on the taskbar. Apps that aren't installed are",
+        "skipped. Store apps have no shortcut, so pin them by aumid",
+        "(find one with: Get-StartApps | Where Name -match 'Terminal')."
+      ],
+      "pins": [
+        { "name": "File Explorer",
+          "lnk": [ "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\File Explorer.lnk",
+                   "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\System Tools\\File Explorer.lnk" ] },
+        { "name": "Microsoft Edge",
+          "lnk": [ "%ProgramData%\\Microsoft\\Windows\\Start Menu\\Programs\\Microsoft Edge.lnk" ] },
+        { "name": "Windows Terminal",
+          "aumid": "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App" },
+        { "name": "Visual Studio Code",
+          "lnk": [ "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Visual Studio Code.lnk",
+                   "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Visual Studio Code\\Visual Studio Code.lnk",
+                   "%ProgramData%\\Microsoft\\Windows\\Start Menu\\Programs\\Visual Studio Code\\Visual Studio Code.lnk" ] },
+        { "name": "OneNote",
+          "lnk": [ "%ProgramData%\\Microsoft\\Windows\\Start Menu\\Programs\\OneNote.lnk",
+                   "%ProgramData%\\Microsoft\\Windows\\Start Menu\\Programs\\OneNote 2016.lnk" ] },
+        { "name": "Obsidian",
+          "lnk": [ "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Obsidian.lnk" ] }
+      ]
+    },
+    {
       "id": "hide-widgets",
       "name": "Remove the Widgets button",
       "default": false,
