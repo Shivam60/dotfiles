@@ -127,20 +127,35 @@ if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
         Command            = "#7aa2f7"
         Parameter          = "#bb9af7"
         Operator           = "#89ddff"
-        Variable           = "#c0caf5"
+        Variable           = "#d5dcf8"
         String             = "#9ece6a"
         Number             = "#ff9e64"
         Type               = "#7dcfff"
-        Comment            = "#565f89"
+        Comment            = "#8b96c0"
         Keyword            = "#bb9af7"
         Error              = "#f7768e"
-        InlinePrediction   = "#565f89"
+        InlinePrediction   = "#8b96c0"
         ListPrediction     = "#7aa2f7"
-        Selection          = "#283457"
+        # Selection and the MenuComplete highlight are BACKGROUND highlights, but
+        # PSReadLine reads a bare "#rrggbb" as a FOREGROUND colour. Passing a hex
+        # here painted the selected text dark on the dark background, so the
+        # highlighted item was unreadable. Give the full escape instead: black
+        # background, bright Tokyo Night foreground.
+        # Background only, no foreground: Windows Terminal's mouse selection
+        # keeps the syntax colours and only swaps the background, so forcing a
+        # flat foreground here made keyboard selection look different from
+        # dragging with the mouse. Keep in sync with selectionBackground.
+        Selection                = "`e[48;2;58;58;58m"
+        ListPredictionSelected   = "`e[48;2;58;58;58m"
     }
 
-    # Arrow keys walk through history matches for what you've typed
-    Set-PSReadLineKeyHandler -Key UpArrow   -Function HistorySearchBackward
+    # The colours above are the built-in fallback. bootstrap.ps1 -Theme writes
+    # the selected theme here, dot-sourced last so it wins - that way switching
+    # themes never has to rewrite this profile.
+    $__theme = Join-Path $HOME '.config\pwsh\theme.ps1'
+    if (Test-Path $__theme) { . $__theme }
+
+    # Arrow keys walk through history matches for what you've typed    Set-PSReadLineKeyHandler -Key UpArrow   -Function HistorySearchBackward
     Set-PSReadLineKeyHandler -Key DownArrow -Function HistorySearchForward
     # Tab = menu-style completion
     Set-PSReadLineKeyHandler -Key Tab -Function MenuComplete

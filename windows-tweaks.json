@@ -203,5 +203,42 @@
         }
       ]
     }
+  ],
+
+  "browser": [
+    {
+      "id": "edge-search-google",
+      "name": "Google as Edge's default search engine",
+      "default": true,
+      "refresh": "none",
+      "settings": [
+        {
+          "path": "HKCU:\\SOFTWARE\\Policies\\Microsoft\\Edge\\Recommended",
+          "name": "DefaultSearchProviderEnabled",
+          "type": "DWord",
+          "value": 1,
+          "note": "Under Recommended, not the mandatory key, so edge://settings stays editable. A mandatory policy greys the search engine out for good. Managed images often ACL HKCU\\SOFTWARE\\Policies read-only, in which case this tweak just warns and is skipped."
+        },
+        {
+          "path": "HKCU:\\SOFTWARE\\Policies\\Microsoft\\Edge\\Recommended",
+          "name": "DefaultSearchProviderName",
+          "type": "String",
+          "value": "Google"
+        },
+        {
+          "path": "HKCU:\\SOFTWARE\\Policies\\Microsoft\\Edge\\Recommended",
+          "name": "DefaultSearchProviderSearchURL",
+          "type": "String",
+          "value": "https://www.google.com/search?q={searchTerms}"
+        },
+        {
+          "path": "HKCU:\\SOFTWARE\\Policies\\Microsoft\\Edge\\Recommended",
+          "name": "DefaultSearchProviderSuggestURL",
+          "type": "String",
+          "value": "https://www.google.com/complete/search?output=chrome&q={searchTerms}",
+          "note": "Edge only reads policy on a managed device, and only picks it up on a full restart."
+        }
+      ]
+    }
   ]
 }

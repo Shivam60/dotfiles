@@ -42,11 +42,21 @@ param(
     [switch]$NonInteractive,
     # Adjust the applied Windows Terminal settings for a remote session.
     [switch]$RdpTweaks,
+    # Opt out of the automatic remote/VM terminal tweaks.
+    [switch]$NoRdpTweaks,
     # Apply Windows OS tweaks (dark mode, taskbar, Explorer) from windows-tweaks.json.
     [switch]$Tweaks,
     # Limit -Tweaks to these ids, or include the opt-in ones with -AllTweaks.
     [string[]]$TweakIds,
     [switch]$AllTweaks,
+    # Add the Tokyo Night gradient as a terminal background image. Off by
+    # default: it tints the whole terminal navy.
+    [switch]$Gradient,
+    # Colour theme to apply, by file name in config\themes (e.g. tokyo-night).
+    # Omitted = keep whatever was chosen last time.
+    [string]$Theme,
+    # Switch the colour theme and nothing else.
+    [switch]$ThemeOnly,
     # Used when re-launching elevated: the child cannot write to our console.
     [string]$LogFile
 )
@@ -151,6 +161,49 @@ function Select-Tweaks {
     $script:TweakIds = $ids
 }
 
+function Get-Themes {
+    $dir = Join-Path $repo 'config\themes'
+    if (-not (Test-Path $dir)) { return @() }
+    @(Get-ChildItem $dir -Filter *.json -ErrorAction SilentlyContinue | Sort-Object Name)
+}
+
+# The active theme is remembered here so a later plain -Apply keeps the look
+# instead of silently reverting to whatever ships as the default.
+$script:ThemeStatePath = Join-Path $HOME '.config\pwsh\theme.txt'
+
+function Get-ActiveTheme {
+    if (Test-Path $script:ThemeStatePath) {
+        $n = (Get-Content $script:ThemeStatePath -Raw).Trim()
+        if ($n -and (Test-Path (Join-Path $repo "config\themes\$n.json"))) { return $n }
+    }
+    $first = Get-Themes | Select-Object -First 1
+    if ($first) { return $first.BaseName }
+    return $null
+}
+
+function Select-Theme {
+    # Always offer the picker, even with a single theme: the menu is how you
+    # discover what is installed, and the current one is pre-selected so
+    # pressing Enter is a no-op.
+    $themes = Get-Themes
+    if (-not $themes) { Write-Warn 'no themes found in config\themes'; return $null }
+    $active = Get-ActiveTheme
+
+    $items = @()
+    foreach ($t in $themes) {
+        $desc = try { (Get-Content $t.FullName -Raw | ConvertFrom-Json).description } catch { '' }
+        $mark = $(if ($t.BaseName -eq $active) { '*' } else { ' ' })
+        $items += '{0} {1,-16} {2}' -f $mark, $t.BaseName, $desc
+    }
+
+    $default = 1 + [array]::IndexOf(@($themes.BaseName), $active)
+    if ($default -lt 1) { $default = 1 }
+
+    Write-Host ''
+    $pick = Read-Choice -Prompt 'which theme? (* = current)' -Default "$default" -Items $items
+    return $themes[$pick - 1].BaseName
+}
+
 function Invoke-Menu {
     Write-Host ''
     Write-Host '  dotfiles' -ForegroundColor Cyan -NoNewline
@@ -160,6 +213,7 @@ function Invoke-Menu {
     $choice = Read-Choice -Prompt 'what do you want to do?' -Default '1' -Items @(
         'Full setup          - install packages, apply configs, apply Windows tweaks'
         'Apply configs only  - terminal, prompt, git, nvim (no installing)'
+        'Change theme        - switch colours only, touch nothing else'
         'Install packages    - pick exactly which ones'
         'Windows tweaks      - dark mode, taskbar, Explorer'
         'Capture configs     - copy my local edits back into this repo'
@@ -169,10 +223,15 @@ function Invoke-Menu {
     switch ($choice) {
         1 { $script:Install = $true; $script:Apply = $true; $script:Tweaks = $true }
         2 { $script:Apply = $true }
-        3 { $script:Install = $true }
-        4 { $script:Tweaks = $true; Select-Tweaks; return }
-        5 { $script:Capture = $true }
-        6 { $script:Apply = $true; $script:Tweaks = $true; $script:WhatIfCopy = $true }
+        3 { $script:ThemeOnly = $true }
+        4 { $script:Install = $true }
+        5 { $script:Tweaks = $true; Select-Tweaks; return }
+        6 { $script:Capture = $true }
+        7 { $script:Apply = $true; $script:Tweaks = $true; $script:WhatIfCopy = $true }
+    }
+
+    if (($script:Apply -or $script:ThemeOnly) -and -not $script:Theme) {
+        $script:Theme = Select-Theme
     }
 
     if (-not $script:Install) { return }
@@ -212,7 +271,7 @@ function Invoke-Menu {
     $script:Groups = $allGroups
 }
 
-if (-not ($Install -or $Apply -or $Capture -or $Tweaks)) {
+if (-not ($Install -or $Apply -or $Capture -or $Tweaks -or $ThemeOnly)) {
     if ($isTty -and -not $NonInteractive) { Invoke-Menu }
     else { $Install = $true; $Apply = $true; $Tweaks = $true }
 } elseif ($Menu) { Invoke-Menu }
@@ -394,6 +453,116 @@ function Install-FontPerUser {
     finally { Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
+function Test-Probe {
+    param([string]$Probe)
+    if (-not $Probe) { return $false }
+    if ($Probe -match '[\\/]') {
+        return (Test-Path ([Environment]::ExpandEnvironmentVariables($Probe)))
+    }
+    return [bool](Get-Command $Probe -ErrorAction SilentlyContinue)
+}
+
+function Test-ConfigDependencies {
+    # The configs assume their tools exist - shared.gitconfig names delta, the
+    # profile names starship/zoxide/eza. Applying configs without the binaries
+    # produces a machine that looks set up but breaks on first use, so say so
+    # here instead of leaving it to be discovered by a failing command later.
+    $pkgFile = Join-Path $repo 'packages.json'
+    if (-not (Test-Path $pkgFile)) { return }
+    $pkgs = Get-Content $pkgFile -Raw | ConvertFrom-Json
+    $missing = @($pkgs.shell | Where-Object { $_.probe -and -not (Test-Probe $_.probe) })
+    if (-not $missing) { Write-Ok 'config dependencies - all present'; return }
+    foreach ($m in $missing) {
+        Write-Warn "missing '$($m.probe)' - configs reference it. Install: winget install --id $($m.id)"
+    }
+    Write-Info 'or re-run: .\bootstrap.ps1 -Install -Groups shell'
+}
+
+function Test-RemoteDisplay {
+    # Acrylic blur is composited per frame. With no real GPU that work lands on
+    # the CPU and is then re-encoded for the wire, so every keystroke redraws the
+    # blurred backdrop - the terminal feels laggy while TYPING, not just ugly.
+    # SESSIONNAME alone is not enough: a Hyper-V/VDI box reached through an
+    # enhanced session can report a console session yet still have no GPU, so
+    # also treat a virtual or remote display adapter as remote.
+    if ($env:SESSIONNAME -like 'RDP-*') { return $true }
+    try {
+        $gpus = @(Get-CimInstance Win32_VideoController -ErrorAction Stop |
+                  Select-Object -ExpandProperty Name)
+        if ($gpus -and -not ($gpus | Where-Object {
+                $_ -notmatch 'Remote|Hyper-V|Basic Display|VMware|VirtualBox|Citrix|Parsec|IDD' })) {
+            return $true
+        }
+    } catch { }
+    return $false
+}
+
+function Set-JsonProp {
+    # ConvertFrom-Json objects throw on assignment to a property that does not
+    # exist yet, so every write has to go through Add-Member when it is new.
+    param($Object, [string]$Name, $Value)
+    if ($Object.PSObject.Properties.Name -contains $Name) { $Object.$Name = $Value }
+    else { $Object | Add-Member -NotePropertyName $Name -NotePropertyValue $Value }
+}
+
+function Set-Theme {
+    param([string]$Name)
+    $file = Join-Path $repo "config\themes\$Name.json"
+    if (-not (Test-Path $file)) {
+        Write-Warn "theme '$Name' not found in config\themes"
+        return
+    }
+    $t = Get-Content $file -Raw | ConvertFrom-Json
+
+    if ($WhatIfCopy) { Write-Info "theme - WOULD apply '$Name' ($($t.description))"; return }
+
+    # --- Windows Terminal: swap the scheme in and point the profiles at it ---
+    $wtDir = Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState'
+    $live  = Join-Path $wtDir 'settings.json'
+    if ((Test-Path $live) -and $t.terminal) {
+        $j = Get-Content $live -Raw | ConvertFrom-Json
+        if ($t.terminal.scheme) {
+            # Replace by name so re-applying a tweaked theme updates in place
+            # rather than stacking duplicate schemes Windows Terminal would
+            # silently pick between.
+            $j.schemes = @(@($j.schemes | Where-Object { $_.name -ne $t.terminal.scheme.name }) + $t.terminal.scheme)
+        }
+        if ($t.terminal.defaults) {
+            foreach ($p in $t.terminal.defaults.PSObject.Properties) {
+                Set-JsonProp $j.profiles.defaults $p.Name $p.Value
+            }
+        }
+        $j | ConvertTo-Json -Depth 32 | Set-Content $live -Encoding utf8
+    }
+
+    # --- PSReadLine: generate a snippet the profile dot-sources ---
+    # Generated rather than written into the profile so switching themes never
+    # has to edit (and risk mangling) the profile itself.
+    if ($t.psreadline) {
+        $themePs1 = Join-Path $HOME '.config\pwsh\theme.ps1'
+        $dir = Split-Path $themePs1 -Parent
+        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+        $lines = @(
+            "# Generated by bootstrap.ps1 -Theme $Name. Do not edit - edit"
+            "# config\themes\$Name.json in the dotfiles repo and re-apply."
+            'Set-PSReadLineOption -Colors @{'
+        )
+        foreach ($p in $t.psreadline.PSObject.Properties) {
+            # Single quotes keep the raw ESC bytes literal; colour values never
+            # contain a quote, so no escaping is needed.
+            $lines += "    '{0}' = '{1}'" -f $p.Name, $p.Value
+        }
+        $lines += '}'
+        Set-Content -Path $themePs1 -Value $lines -Encoding utf8
+    }
+
+    $dirState = Split-Path $script:ThemeStatePath -Parent
+    if (-not (Test-Path $dirState)) { New-Item -ItemType Directory -Force -Path $dirState | Out-Null }
+    Set-Content -Path $script:ThemeStatePath -Value $Name -Encoding utf8
+    Write-Ok "theme - '$Name' applied ($($t.description))"
+}
+
+
 function Set-RdpTweaks {
     # Acrylic is the frosted-blur effect and needs local hardware composition, so
     # it never renders in a remote session. Plain opacity is just an alpha value
@@ -407,16 +576,20 @@ function Set-RdpTweaks {
 
     $j = Get-Content $live -Raw | ConvertFrom-Json
     $d = $j.profiles.defaults
-    $d.useAcrylic       = $false
-    $d.antialiasingMode = 'grayscale'
-    if (-not $d.opacity -or $d.opacity -eq 100) { $d.opacity = 85 }
+    Set-JsonProp $d 'useAcrylic'       $false
+    Set-JsonProp $d 'antialiasingMode' 'grayscale'
+    if (-not $d.opacity -or $d.opacity -eq 100) { Set-JsonProp $d 'opacity' 85 }
+    # The tab row blurs independently of the profiles, so it keeps costing frames
+    # even after the panes stop using acrylic.
+    Set-JsonProp $j 'useAcrylicInTabRow' $false
 
-    # If the RDP client will not pass alpha through, transparency is simply gone.
     # A background image is drawn by Windows Terminal itself rather than by the
-    # desktop compositor, so it always survives the remote session and restores
-    # some of the depth that the blur used to provide.
+    # desktop compositor, so it survives a remote session where transparency is
+    # dropped. It is OFF by default: the gradient is a blue navy (#1d1d30 ->
+    # #222840) and tints the WHOLE terminal, which is a much bigger visual change
+    # than the acrylic it replaces. Opt in with -Gradient.
     $bgSrc = Join-Path $repo 'config\windows-terminal\bg-tokyonight.png'
-    $addBg = Test-Path $bgSrc
+    $addBg = $Gradient -and (Test-Path $bgSrc)
 
     if ($WhatIfCopy) {
         Write-Info "rdp tweaks - WOULD drop acrylic blur, keep opacity $($d.opacity), grayscale AA"
@@ -425,24 +598,45 @@ function Set-RdpTweaks {
     }
 
     if ($addBg) {
-        Copy-Item $bgSrc (Join-Path $wtDir 'bg-tokyonight.png') -Force
+        $bgDst = Join-Path $wtDir 'bg-tokyonight.png'
+        # A running Windows Terminal keeps its background image open, so a plain
+        # Copy-Item throws on every re-run after the first and takes the whole
+        # -Apply down with it. The bytes only ever need replacing when they
+        # actually differ, and in that case the terminal has to be restarted to
+        # pick the new image up anyway - so warn rather than fail.
+        $needsCopy = -not (Test-Path $bgDst) -or
+                     (Get-FileHash $bgSrc).Hash -ne (Get-FileHash $bgDst).Hash
+        if ($needsCopy) {
+            try { Copy-Item $bgSrc $bgDst -Force }
+            catch {
+                Write-Warn 'rdp tweaks - background image in use by a running Windows Terminal; close every window and re-run to refresh it'
+                $addBg = $false
+            }
+        }
+    }
+    if ($addBg) {
         # ms-appdata:///local/ resolves to this LocalState folder, so the setting
         # stays valid no matter where the repo lives.
-        $props = $d.PSObject.Properties.Name
         foreach ($kv in @{
             backgroundImage             = 'ms-appdata:///local/bg-tokyonight.png'
             backgroundImageOpacity      = 1.0
             backgroundImageStretchMode  = 'uniformToFill'
         }.GetEnumerator()) {
-            if ($props -contains $kv.Key) { $d.($kv.Key) = $kv.Value }
-            else { $d | Add-Member -NotePropertyName $kv.Key -NotePropertyValue $kv.Value }
+            Set-JsonProp $d $kv.Key $kv.Value
+        }
+    }
+    else {
+        # Strip a gradient left behind by an earlier run, otherwise dropping the
+        # switch would leave the tint in place with no way to undo it.
+        foreach ($k in 'backgroundImage','backgroundImageOpacity','backgroundImageStretchMode') {
+            if ($d.PSObject.Properties.Name -contains $k) { $d.PSObject.Properties.Remove($k) }
         }
     }
 
     $j | ConvertTo-Json -Depth 32 | Set-Content $live -Encoding utf8
     Write-Ok "rdp tweaks - blur off, opacity $($d.opacity) kept, grayscale antialiasing"
     if ($addBg) { Write-Ok 'rdp tweaks - gradient background applied (survives RDP)' }
-    Write-Info 'transparency may still be dropped by the RDP client; the gradient is the fallback'
+    else { Write-Info 'rdp tweaks - no background image (pass -Gradient to add the Tokyo Night gradient)' }
 }
 
 # ---------------------------------------------------------------------------
@@ -494,14 +688,6 @@ if ($Install) {
             if ($pre.Length -ge 4 -and $Id.StartsWith($pre, 'OrdinalIgnoreCase')) { return $true }
         }
         return $false
-    }
-    function Test-Probe {
-        param([string]$Probe)
-        if (-not $Probe) { return $false }
-        if ($Probe -match '[\\/]') {
-            return (Test-Path ([Environment]::ExpandEnvironmentVariables($Probe)))
-        }
-        return [bool](Get-Command $Probe -ErrorAction SilentlyContinue)
     }
     function Test-FontInstalled {
         param([string]$Match)
@@ -681,17 +867,29 @@ if ($Apply) {
         Copy-Config -From $c.Repo -To $c.Live -Label $c.Name -Transform $c.Transform
     }
     Set-GitInclude
-    if ($RdpTweaks) { Set-RdpTweaks }
-    elseif ($env:SESSIONNAME -like 'RDP-*') {
-        Write-Info 'remote session detected - re-run with -RdpTweaks if acrylic looks flat'
-    }
+    # After the config copy (which would otherwise overwrite the scheme) and
+    # before the RDP tweaks, which only fill in what the theme left unset.
+    $themeName = if ($Theme) { $Theme } else { Get-ActiveTheme }
+    if ($themeName) { Set-Theme -Name $themeName }
+    # Auto-apply on remote/GPU-less machines: leaving this to a flag meant the
+    # laggy default silently shipped to every VM until someone noticed.
+    if ($NoRdpTweaks) { Write-Info 'remote terminal tweaks skipped (-NoRdpTweaks)' }
+    elseif ($RdpTweaks -or (Test-RemoteDisplay)) { Set-RdpTweaks }
+    Test-ConfigDependencies
+    Write-Host "`nOpen a NEW terminal tab to pick up the changes." -ForegroundColor Cyan
+}
+
+if ($ThemeOnly) {
+    Write-Step 'Changing theme'
+    $themeName = if ($Theme) { $Theme } else { Get-ActiveTheme }
+    if ($themeName) { Set-Theme -Name $themeName } else { Write-Warn 'no theme to apply' }
     Write-Host "`nOpen a NEW terminal tab to pick up the changes." -ForegroundColor Cyan
 }
 
 if ($Capture) {
     Write-Step 'Capturing configs from this machine into the repo'
-    if ($env:SESSIONNAME -like 'RDP-*') {
-        Write-Warn 'remote session: if you ran -RdpTweaks here, do not commit the Windows Terminal change'
+    if (Test-RemoteDisplay) {
+        Write-Warn 'remote session: the terminal tweaks applied here are machine-local, do not commit them'
     }
     foreach ($c in Get-ConfigMap) {
         if ($c.Skip) { Write-Info "$($c.Name) - not installed here, skipped"; continue }
