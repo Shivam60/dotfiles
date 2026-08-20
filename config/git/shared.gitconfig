@@ -12,7 +12,11 @@
 	preloadindex = true
 	symlinks = false
 	fscache = true
-	pager = delta
+	# Degrade to less when delta is absent. A bare `pager = delta` makes EVERY
+	# paged command die with "cannot spawn delta" on a machine where the tool
+	# was never installed, which is a broken git rather than an unstyled one.
+	# Git runs the pager through sh, so this is a plain POSIX guard.
+	pager = command -v delta >/dev/null 2>&1 && delta || less -FRX
 
 [diff]
 	tool = vscode
@@ -29,7 +33,9 @@
 	cmd = code --wait --diff \"$LOCAL\" \"$REMOTE\"
 
 [interactive]
-	diffFilter = delta --color-only
+	# Same guard as core.pager: without it, `git add -p` fails outright when
+	# delta is missing. `cat` keeps the hunks flowing, just uncoloured.
+	diffFilter = command -v delta >/dev/null 2>&1 && delta --color-only || cat
 
 [merge]
 	conflictstyle = zdiff3

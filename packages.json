@@ -20,6 +20,7 @@
     { "id": "ajeetdsouza.zoxide",        "probe": "zoxide", "note": "z - smarter cd" },
     { "id": "junegunn.fzf",              "probe": "fzf",    "note": "fuzzy finder (Ctrl+t / Ctrl+r)" },
     { "id": "sharkdp.bat",               "probe": "bat",    "note": "cat with syntax highlighting" },
+    { "id": "dandavison.delta",          "probe": "delta",  "note": "git pager; shared.gitconfig sets core.pager=delta" },
     { "id": "eza-community.eza",         "probe": "eza",    "note": "modern ls" },
     { "id": "BurntSushi.ripgrep.MSVC",   "probe": "rg",     "note": "ripgrep" },
     { "id": "Microsoft.PowerShell",      "probe": "pwsh",   "note": "pwsh 7" },
