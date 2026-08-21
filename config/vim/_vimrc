@@ -56,29 +56,45 @@ autocmd BufWritePre *.py %s/\s\+$//e
 let g:cheatsheet_file  = expand('~/vim-cheatsheet.txt')
 let g:cheatsheet_width = 34
 
+" Identify the panel by a buffer-local flag, not by name. Renaming the buffer to
+" 'cheatsheet' fails the second time round (E95: a hidden buffer already owns
+" that name), which silently broke the toggle and left duplicate splits behind.
+function! s:CheatWinNr()
+  for l:w in range(1, winnr('$'))
+    if getbufvar(winbufnr(l:w), 'is_cheatsheet', 0)
+      return l:w
+    endif
+  endfor
+  return -1
+endfunction
+
 function! OpenCheatSheet()
   " already open? do nothing
-  if bufexists('cheatsheet') && bufwinnr(bufnr('cheatsheet')) != -1
+  if s:CheatWinNr() != -1
     return
   endif
   if !filereadable(g:cheatsheet_file)
     return
   endif
   " open on the far right
-  execute 'botright vertical ' . g:cheatsheet_width . 'vsplit ' . g:cheatsheet_file
+  execute 'botright vertical ' . g:cheatsheet_width . 'vsplit ' . fnameescape(g:cheatsheet_file)
   " make it a fixed, non-editable helper window
   setlocal buftype=nofile bufhidden=hide noswapfile
   setlocal nomodifiable readonly
   setlocal nonumber norelativenumber nowrap
   setlocal winfixwidth nocursorline
   setlocal filetype=cheatsheet
-  silent! file cheatsheet
+  " Keep the friendly label without renaming the buffer: :file cheatsheet is
+  " what collided on reopen. laststatus defaults to 1, so with the split open
+  " each window shows its own status line anyway.
+  setlocal statusline=\ cheatsheet
+  let b:is_cheatsheet = 1
   " jump focus back to the editing window on the left
   wincmd h
 endfunction
 
 function! ToggleCheatSheet()
-  let l:win = bufwinnr('cheatsheet')
+  let l:win = s:CheatWinNr()
   if l:win != -1
     execute l:win . 'wincmd c'
   else
@@ -93,4 +109,9 @@ nnoremap <silent> <Space>c :call ToggleCheatSheet()<CR>
 autocmd FileType python if &buftype ==# '' | call OpenCheatSheet() | endif
 
 " Auto-open on startup even with no file / non-python file
-autocmd VimEnter * if &buftype ==# '' && bufname('%') !=# 'cheatsheet' | call OpenCheatSheet() | endif
+autocmd VimEnter * if &buftype ==# '' && !get(b:, 'is_cheatsheet', 0) | call OpenCheatSheet() | endif
+
+" A helper panel must never keep vim alive on its own. Without this, closing the
+" last real file leaves you stranded in a read-only cheat sheet that needs a
+" second :q. WinEnter covers closing a split, BufEnter covers :bd on the file.
+autocmd WinEnter,BufEnter * if winnr('$') == 1 && get(b:, 'is_cheatsheet', 0) | quit | endif
