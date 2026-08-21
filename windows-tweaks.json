@@ -66,6 +66,28 @@
           "note": "0 = dark. Controls taskbar, Start and the tray."
         }
       ]
+    },
+    {
+      "id": "spotlight-wallpaper",
+      "name": "Windows Spotlight wallpaper (a new photo each day)",
+      "default": true,
+      "refresh": "explorer",
+      "settings": [
+        {
+          "path": "HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Wallpapers",
+          "name": "BackgroundType",
+          "type": "DWord",
+          "value": 3,
+          "note": "0 = picture, 1 = solid colour, 2 = slideshow, 3 = Windows Spotlight."
+        },
+        {
+          "path": "HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\DesktopSpotlight\\Settings",
+          "name": "EnabledState",
+          "type": "DWord",
+          "value": 1,
+          "note": "BackgroundType alone only half-enables Spotlight - the picture stops rotating. This is the switch the Settings app actually flips. Note the daily image is fetched from Microsoft, so a machine with Spotlight blocked by policy will silently keep the old wallpaper."
+        }
+      ]
     }
   ],
 
